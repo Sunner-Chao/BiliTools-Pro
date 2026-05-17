@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 
 import httpx
+from .http_client import create_client
 
 from .bilibili import bilibili_service
 from .game_config import game_config_service
@@ -22,8 +23,8 @@ class ActivityInfoService:
             "Cookie": cookie,
             "Referer": source_url or config.get("source_url") or "https://www.bilibili.com",
         }
-        live_days = await self._fetch_live_days(config, headers)
-        submit_count = await self._fetch_submit_count(user.get("mid") or user.get("uid"), headers)
+        live_days = await self._fetch_live_days(config, headers, cookie)
+        submit_count = await self._fetch_submit_count(user.get("mid") or user.get("uid"), cookie)
         page_info = await self._fetch_page_info(source_url or config.get("source_url"), headers)
         return {
             "success": True,
@@ -38,51 +39,71 @@ class ActivityInfoService:
             "fetchedAt": datetime.now().isoformat(timespec="seconds"),
         }
 
-    async def _fetch_live_days(self, config: dict[str, Any], headers: dict[str, str]) -> int | None:
+    async def _fetch_live_days(self, config: dict[str, Any], headers: dict[str, str], cookie: str) -> int | None:
+        """获取直播完成天数，参考原版 Bili_MoblieGames_Auto_Tool_v0_5_2_Async.py fetch_days_info"""
         task_ids = str(config.get("live_task_ids") or "").strip()
         if not task_ids:
             return None
         try:
-            async with httpx.AsyncClient(timeout=12.0) as client:
+            async with create_client(timeout=12.0) as client:
                 data = (await client.get(
                     "https://api.bilibili.com/x/task/totalv2",
-                    params={"task_ids": task_ids},
+                    params={
+                        "task_ids": task_ids,
+                        "web_location": 888.81821,
+                        "csrf": bilibili_service.csrf_token,
+                    },
                     headers=headers,
                 )).json()
             if data.get("code") != 0:
                 return None
-            payload = data.get("data", {})
-            if isinstance(payload, dict):
-                for value in payload.values():
-                    if isinstance(value, dict):
-                        for key in ("counter", "count", "num", "progress", "total"):
-                            if isinstance(value.get(key), (int, float)):
-                                return int(value[key])
-                    if isinstance(value, (int, float)):
-                        return int(value)
+            # 原版逻辑: list[0]['accumulative_count']
+            task_list = data.get("data", {}).get("list", [])
+            if isinstance(task_list, list) and len(task_list) > 0:
+                first_item = task_list[0]
+                if isinstance(first_item, dict):
+                    count = first_item.get("accumulative_count")
+                    if isinstance(count, (int, float)):
+                        return int(count)
+                    # 兼容其他可能的字段名
+                    for key in ("count", "num", "total", "current"):
+                        count = first_item.get(key)
+                        if isinstance(count, (int, float)):
+                            return int(count)
         except Exception:
             return None
         return None
 
-    async def _fetch_submit_count(self, mid: Any, headers: dict[str, str]) -> int | None:
+    async def _fetch_submit_count(self, mid: Any, cookie: str) -> int | None:
+        """获取投稿稿件总数，参考原版 get_submit_info 函数"""
         if not mid:
             return None
         try:
-            async with httpx.AsyncClient(timeout=12.0) as client:
+            # 原版使用的 API: app.bilibili.com/x/v2/space/archive/cursor
+            async with create_client(timeout=15.0) as client:
                 data = (await client.get(
                     "https://app.bilibili.com/x/v2/space/archive/cursor",
                     params={"vmid": mid, "ps": 20},
-                    headers=headers,
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.77 Mobile Safari/537.36",
+                        "Referer": "https://www.bilibili.com/",
+                    },
                 )).json()
             if data.get("code") != 0:
                 return None
+            # 原版逻辑: data.get("count") 或 page.get("count")
             data_node = data.get("data", {})
+            count = data_node.get("count")
+            if isinstance(count, int):
+                return count
             page = data_node.get("page") or {}
             if isinstance(page.get("count"), int):
                 return int(page["count"])
-            if isinstance(data_node.get("count"), int):
-                return int(data_node["count"])
-            return len(data_node.get("item") or data_node.get("list") or [])
+            # 备选: 返回列表长度
+            items = data_node.get("item") or data_node.get("list") or []
+            if isinstance(items, list):
+                return len(items)
+            return None
         except Exception:
             return None
 
@@ -90,7 +111,7 @@ class ActivityInfoService:
         if not source_url:
             return {}
         try:
-            async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+            async with create_client(timeout=20.0, follow_redirects=True) as client:
                 html = (await client.get(source_url, headers=headers)).text
         except Exception:
             return {}

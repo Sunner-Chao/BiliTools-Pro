@@ -79,10 +79,7 @@ const TasksPage: React.FC = () => {
 
   const handleRefreshConfig = async () => {
     const game = form.getFieldValue('game');
-    if (!game) {
-      message.error('请先选择游戏');
-      return;
-    }
+    if (!game) { message.error('请先选择游戏'); return; }
     const result = await window.api.tasks.refreshGameConfig(game, sourceUrl || undefined);
     if (result.success) {
       message.success(`配置已刷新，任务数 ${result.taskCount}`);
@@ -99,10 +96,7 @@ const TasksPage: React.FC = () => {
     try {
       const values = await form.validateFields();
       const selectedTasks = resources.filter((item) => selectedIds.includes(item.id));
-      if (selectedTasks.length === 0) {
-        message.error('请选择至少一个资源道具');
-        return;
-      }
+      if (selectedTasks.length === 0) { message.error('请选择至少一个资源道具'); return; }
       const result = await window.api.tasks.create({
         type: 'grab_code',
         game: values.game,
@@ -193,13 +187,22 @@ const TasksPage: React.FC = () => {
   };
 
   const logColumns = [
-    { title: '时间', dataIndex: 'time', key: 'time', width: 86, render: (value: string) => <Typography.Text type="secondary">{value}</Typography.Text> },
+    { title: '时间', dataIndex: 'time', key: 'time', width: 86, render: (value: string) => <Typography.Text style={{ color: 'var(--bt-text-disabled)', fontSize: 12 }}>{value}</Typography.Text> },
     { title: '级别', dataIndex: 'level', key: 'level', width: 92, render: (value: string) => <Tag color={value === 'error' ? 'red' : value === 'warning' ? 'gold' : value === 'success' ? 'green' : 'blue'}>{value}</Tag> },
-    { title: '输出', dataIndex: 'message', key: 'message', render: (value: string) => <Typography.Text style={{ whiteSpace: 'pre-wrap' }}>{value}</Typography.Text> },
+    { title: '输出', dataIndex: 'message', key: 'message', render: (value: string) => <Typography.Text style={{ whiteSpace: 'pre-wrap', color: 'var(--bt-text-secondary)' }}>{value}</Typography.Text> },
   ];
 
   return (
-    <div style={{ padding: 24 }}>
+    <div>
+      {/* Page header */}
+      <div className="bt-page-header bt-animate-fade-in">
+        <div className="bt-page-header-bar" />
+        <div>
+          <h1>任务管理</h1>
+          <p>精准定时 · 多线程并发 · 自动重试</p>
+        </div>
+      </div>
+
       <Row gutter={16}>
         <Col span={9}>
           <Card title="选择资源道具 + 定时抢码">
@@ -223,31 +226,19 @@ const TasksPage: React.FC = () => {
               </Form.Item>
               {overview ? (
                 <Row gutter={8} style={{ marginBottom: 16 }}>
-                  <Col span={8}>
-                    <Card size="small">
-                      <Statistic title="直播完成天数" value={overview.liveDays ?? '-'} />
-                    </Card>
-                  </Col>
-                  <Col span={8}>
-                    <Card size="small">
-                      <Statistic title="投稿稿件总数" value={overview.submitCount ?? '-'} />
-                    </Card>
-                  </Col>
-                  <Col span={8}>
-                    <Card size="small">
-                      <Statistic title="活动倒计时" value={overview.countdownSeconds ? formatDuration(overview.countdownSeconds) : '-'} />
-                    </Card>
-                  </Col>
+                  <Col span={8}><div className="bt-stat-card" style={{ padding: 12 }}><Statistic title="直播完成天数" value={overview.liveDays ?? '-'} /></div></Col>
+                  <Col span={8}><div className="bt-stat-card" style={{ padding: 12 }}><Statistic title="投稿稿件总数" value={overview.submitCount ?? '-'} /></div></Col>
+                  <Col span={8}><div className="bt-stat-card" style={{ padding: 12 }}><Statistic title="活动倒计时" value={overview.countdownSeconds ? formatDuration(overview.countdownSeconds) : '-'} /></div></Col>
                 </Row>
               ) : null}
               <Form.Item label="资源道具">
-                <div style={{ maxHeight: 240, overflow: 'auto', border: '1px solid #f0f0f0', padding: 8 }}>
+                <div style={{ maxHeight: 240, overflow: 'auto', border: '1px solid var(--bt-glass-border)', borderRadius: 12, padding: 12, background: 'color-mix(in srgb, var(--bt-bg-overlay) 55%, transparent)' }}>
                   <Checkbox.Group value={selectedIds} onChange={(ids) => setSelectedIds(ids as string[])}>
                     <Space direction="vertical">
                       {resources.map((item) => (
                         <Checkbox key={item.id} value={item.id}>
                           <Space size={6} wrap>
-                            <span>{item.name}</span>
+                            <span style={{ color: 'var(--bt-text-primary)' }}>{item.name}</span>
                             {item.awardName ? <Tag color="green">{item.awardName}</Tag> : null}
                             <Tag>{item.id}</Tag>
                           </Space>
@@ -282,10 +273,10 @@ const TasksPage: React.FC = () => {
           </Card>
           <Card title="运行资源" style={{ marginTop: 16 }}>
             <Space direction="vertical" size={4}>
-              <span>config: {resourceInfo?.paths?.config || '-'}</span>
-              <span>cookies: {resourceInfo?.paths?.cookies || '-'}</span>
-              <span>execute: {resourceInfo?.paths?.execute || '-'}</span>
-              <span>可执行文件: {(resourceInfo?.executables || []).map((item: any) => item.name).join(', ') || '-'}</span>
+              <span style={{ color: 'var(--bt-text-secondary)' }}>config: <span style={{ color: 'var(--bt-text-primary)' }}>{resourceInfo?.paths?.config || '-'}</span></span>
+              <span style={{ color: 'var(--bt-text-secondary)' }}>cookies: <span style={{ color: 'var(--bt-text-primary)' }}>{resourceInfo?.paths?.cookies || '-'}</span></span>
+              <span style={{ color: 'var(--bt-text-secondary)' }}>execute: <span style={{ color: 'var(--bt-text-primary)' }}>{resourceInfo?.paths?.execute || '-'}</span></span>
+              <span style={{ color: 'var(--bt-text-secondary)' }}>可执行文件: <span style={{ color: 'var(--bt-text-primary)' }}>{(resourceInfo?.executables || []).map((item: any) => item.name).join(', ') || '-'}</span></span>
             </Space>
           </Card>
           <Card title={activeTask ? `执行日志 - ${activeTask.config?.name || activeTask.id}` : '执行日志'} style={{ marginTop: 16 }}>

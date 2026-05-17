@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { Card, Typography, Input, Button, message, Space } from 'antd';
+import { Input, Button, message } from 'antd';
 import { LoginOutlined } from '@ant-design/icons';
 
-const { Title, Paragraph } = Typography;
 const { TextArea } = Input;
 
 interface CookieLoginProps {
@@ -35,16 +34,38 @@ const CookieLogin: React.FC<CookieLoginProps> = ({ onSuccess }) => {
   };
 
   return (
-    <Card style={{ padding: 24 }}>
-      <Title level={4}>Cookie登录</Title>
-      <Paragraph type="secondary">从浏览器中复制B站Cookie粘贴到下方</Paragraph>
-      <Space direction="vertical" style={{ width: '100%' }}>
-        <TextArea rows={4} placeholder="请输入Cookie..." value={cookie} onChange={(e) => setCookie(e.target.value)} />
-        <Button type="primary" icon={<LoginOutlined />} loading={loading} onClick={handleLogin} block>
-          登录
-        </Button>
-      </Space>
-    </Card>
+    <div style={{ padding: '8px 0' }}>
+      <div style={{ marginBottom: 16 }}>
+        <div style={{
+          fontSize: 14, fontWeight: 600,
+          color: 'var(--bt-text-primary)', marginBottom: 8,
+        }}>
+          Cookie 登录
+        </div>
+        <div style={{
+          fontSize: 13, color: 'var(--bt-text-secondary)', marginBottom: 16,
+          lineHeight: 1.6,
+        }}>
+          从浏览器中复制B站Cookie粘贴到下方
+        </div>
+      </div>
+      <TextArea
+        rows={4}
+        placeholder="SESSDATA=...; bili_jct=...; DedeUserID=..."
+        value={cookie}
+        onChange={(e) => setCookie(e.target.value)}
+        style={{ marginBottom: 16 }}
+      />
+      <Button
+        type="primary"
+        icon={<LoginOutlined />}
+        loading={loading}
+        onClick={handleLogin}
+        block
+      >
+        登录
+      </Button>
+    </div>
   );
 };
 

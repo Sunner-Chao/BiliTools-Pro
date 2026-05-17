@@ -5,11 +5,60 @@ directories:
 files:
   - dist/**/*
   - '!node_modules/**/*'
+  - '!dist/win-unpacked/**/*'
+  - '!dist/linux-unpacked/**/*'
+  - '!dist/__appImage-x64/**/*'
+  - '!dist/*.AppImage'
+  - '!dist/*.zip'
+  - '!dist/win-unpacked'
+  - '!dist/linux-unpacked'
+  - '!dist/__appImage-x64'
+extraResources:
+  - from: "build/backend-win"
+    to: "backend"
+    filter:
+      - "**/*"
+  - from: "../../apps/backend/dist/backend"
+    to: "backend"
+    filter:
+      - "**/*"
+      - "!__pycache__"
+      - "!*.pyc"
+  - from: "../../config"
+    to: "backend/config"
+    filter:
+      - "**/*"
+  - from: "../../execute"
+    to: "backend/execute"
+    filter:
+      - "**/*"
+  - from: "../../captcha_images"
+    to: "backend/captcha_images"
+    filter:
+      - "**/*"
+  - from: "../../javascript"
+    to: "backend/javascript"
+    filter:
+      - "**/*"
+  - from: "../../model"
+    to: "backend/model"
+    filter:
+      - "**/*"
+  - from: "../../others"
+    to: "backend/others"
+    filter:
+      - "**/*"
+  - from: "../../videos"
+    to: "backend/videos"
+    filter:
+      - "**/*"
 asar: true
 win:
   signAndEditExecutable: false
   target:
     - target: nsis
+      arch: [x64]
+    - target: zip
       arch: [x64]
 mac:
   target:

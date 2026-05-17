@@ -5,9 +5,7 @@ import { CheckCircleOutlined, KeyOutlined, PlayCircleOutlined, ReloadOutlined, T
 const AnalyticsPage: React.FC = () => {
   const [data, setData] = useState<any>({ games: [], recent: [], streaming: {} });
 
-  const load = async () => {
-    setData(await window.api.analytics.summary());
-  };
+  const load = async () => { setData(await window.api.analytics.summary()); };
 
   useEffect(() => {
     load();
@@ -15,32 +13,69 @@ const AnalyticsPage: React.FC = () => {
     return () => window.clearInterval(timer);
   }, []);
 
+  const statCards = [
+    { title: '总任务数', value: data.totalTasks || 0, suffix: '个', icon: <ThunderboltOutlined />, color: 'var(--bt-primary)' },
+    { title: '完成任务', value: data.completedTasks || 0, suffix: '个', icon: <CheckCircleOutlined />, color: 'var(--bt-success)' },
+    { title: '成功率', value: data.successRate || 0, suffix: '%', icon: <PlayCircleOutlined />, color: 'var(--bt-info)' },
+    { title: '推流状态', value: data.streaming?.isStreaming ? '直播中' : '未直播', icon: <VideoCameraOutlined />, color: data.streaming?.isStreaming ? 'var(--bt-success)' : 'var(--bt-text-disabled)' },
+  ];
+
+  const statCards2 = [
+    { title: '运行/等待', value: data.runningTasks || 0, suffix: '个' },
+    { title: '失败任务', value: data.failedTasks || 0, suffix: '个', color: (data.failedTasks || 0) ? 'var(--bt-error)' : undefined },
+    { title: '接口结果', value: data.resultCount || 0, suffix: '条' },
+    { title: '兑换码记录', value: data.cdkeyCount || 0, suffix: '个', icon: <KeyOutlined /> },
+  ];
+
   return (
-    <div style={{ padding: 24 }}>
-      <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }}>
-        <h1 style={{ margin: 0 }}>数据统计</h1>
-        <Space>
-          <span style={{ color: '#999', fontSize: 12 }}>更新于 {data.updatedAt || '-'}</span>
-          <Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>
-        </Space>
-      </Space>
+    <div>
+      {/* Page header */}
+      <div className="bt-page-header bt-animate-fade-in">
+        <div className="bt-page-header-bar" />
+        <div>
+          <h1>数据统计</h1>
+          <p>更新于 {data.updatedAt || '-'}</p>
+        </div>
+        <Button icon={<ReloadOutlined />} onClick={load} style={{ marginLeft: 'auto' }}>刷新</Button>
+      </div>
 
       <Row gutter={16} style={{ marginBottom: 24 }}>
-        <Col span={6}><Card><Statistic title="总任务数" value={data.totalTasks || 0} suffix="个" prefix={<ThunderboltOutlined />} /></Card></Col>
-        <Col span={6}><Card><Statistic title="完成任务" value={data.completedTasks || 0} suffix="个" prefix={<CheckCircleOutlined />} /></Card></Col>
-        <Col span={6}><Card><Statistic title="成功率" value={data.successRate || 0} suffix="%" precision={1} prefix={<PlayCircleOutlined />} /></Card></Col>
-        <Col span={6}><Card><Statistic title="推流状态" value={data.streaming?.isStreaming ? '直播中' : '未直播'} prefix={<VideoCameraOutlined />} valueStyle={{ color: data.streaming?.isStreaming ? '#52c41a' : '#999' }} /></Card></Col>
+        {statCards.map((s) => (
+          <Col span={6} key={s.title}>
+            <div className="bt-stat-card" style={{ padding: 20, position: 'relative', overflow: 'hidden' }}>
+              <div style={{ position: 'absolute', inset: 0, background: `linear-gradient(135deg, ${s.color}10, transparent)` }} />
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 1, background: `linear-gradient(90deg, transparent, ${s.color}50, transparent)` }} />
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, position: 'relative' }}>
+                <span style={{ fontSize: 11, color: 'var(--bt-text-secondary)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.title}</span>
+                <div className="bt-stat-icon" style={{ background: `${s.color}10`, color: s.color }}>{s.icon}</div>
+              </div>
+              <Statistic
+                value={s.value}
+                suffix={s.suffix}
+                valueStyle={{ color: s.color, fontWeight: 700, fontSize: 24 }}
+              />
+            </div>
+          </Col>
+        ))}
       </Row>
       <Row gutter={16} style={{ marginBottom: 24 }}>
-        <Col span={6}><Card><Statistic title="运行/等待" value={data.runningTasks || 0} suffix="个" /></Card></Col>
-        <Col span={6}><Card><Statistic title="失败任务" value={data.failedTasks || 0} suffix="个" valueStyle={{ color: (data.failedTasks || 0) ? '#cf1322' : undefined }} /></Card></Col>
-        <Col span={6}><Card><Statistic title="接口结果" value={data.resultCount || 0} suffix="条" /></Card></Col>
-        <Col span={6}><Card><Statistic title="兑换码记录" value={data.cdkeyCount || 0} suffix="个" prefix={<KeyOutlined />} /></Card></Col>
+        {statCards2.map((s) => (
+          <Col span={6} key={s.title}>
+            <Card>
+              <Statistic title={s.title} value={s.value} suffix={s.suffix} prefix={s.icon} valueStyle={s.color ? { color: s.color } : undefined} />
+            </Card>
+          </Col>
+        ))}
       </Row>
 
       <Row gutter={16}>
         <Col span={12}>
-          <Card title="游戏任务统计">
+          <Card title={
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 4, height: 16, borderRadius: 2, background: 'var(--bt-primary)' }} />
+              <span>游戏任务统计</span>
+            </div>
+          }>
             <Table
               dataSource={data.games || []}
               rowKey="game"
@@ -57,7 +92,12 @@ const AnalyticsPage: React.FC = () => {
           </Card>
         </Col>
         <Col span={12}>
-          <Card title="最近任务">
+          <Card title={
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 4, height: 16, borderRadius: 2, background: 'var(--bt-info)' }} />
+              <span>最近任务</span>
+            </div>
+          }>
             <Table
               dataSource={data.recent || []}
               rowKey={(_, index) => `recent-${index}`}
@@ -76,7 +116,12 @@ const AnalyticsPage: React.FC = () => {
       </Row>
       <Row gutter={16} style={{ marginTop: 16 }}>
         <Col span={12}>
-          <Card title="账号与凭证">
+          <Card title={
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 4, height: 16, borderRadius: 2, background: 'var(--bt-success)' }} />
+              <span>账号与凭证</span>
+            </div>
+          }>
             <Descriptions size="small" column={1} bordered>
               <Descriptions.Item label="当前账号">{data.user?.name || '未登录'}</Descriptions.Item>
               <Descriptions.Item label="UID">{data.user?.mid || data.user?.uid || '-'}</Descriptions.Item>
@@ -88,7 +133,12 @@ const AnalyticsPage: React.FC = () => {
           </Card>
         </Col>
         <Col span={12}>
-          <Card title="每日任务观众槽位">
+          <Card title={
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 4, height: 16, borderRadius: 2, background: 'var(--bt-accent)' }} />
+              <span>每日任务观众槽位</span>
+            </div>
+          }>
             <Table
               size="small"
               rowKey="slot"

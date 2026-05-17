@@ -14,8 +14,10 @@ interface UIState {
   notifications: Notification[];
 }
 
+const savedTheme = typeof window !== 'undefined' ? window.localStorage.getItem('bilitools-theme') : null;
+
 const initialState: UIState = {
-  theme: 'light',
+  theme: savedTheme === 'dark' || savedTheme === 'light' ? savedTheme : 'light',
   sidebarCollapsed: false,
   activeMenu: 'dashboard',
   notifications: [],

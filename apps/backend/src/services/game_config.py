@@ -1,14 +1,16 @@
 """Game activity config loader shared by task and live features."""
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
 
 import httpx
+from .http_client import create_client
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[5]
-PRO_ROOT = PROJECT_ROOT / "BiliTools-Pro"
+PRO_ROOT = Path(os.environ.get("BILITOOLS_PRO_ROOT", PROJECT_ROOT / "BiliTools-Pro")).resolve()
 CONFIG_DIRS = [
     PRO_ROOT / "config",
     PROJECT_ROOT / "src" / "config",
@@ -137,7 +139,7 @@ class GameConfigService:
         if not source_url:
             return {"success": False, "error": "缺少活动页面 URL"}
 
-        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+        async with create_client(timeout=30.0, follow_redirects=True) as client:
             response = await client.get(source_url, headers={"User-Agent": "Mozilla/5.0"})
         response.raise_for_status()
 
@@ -146,6 +148,7 @@ class GameConfigService:
         refreshed["source_url"] = source_url
         refreshed["area_name"] = old_config.get("area_name", refreshed.get("area_name", game))
         refreshed["area_v2"] = old_config.get("area_v2", refreshed.get("area_v2", 0))
+        refreshed["submit_task_ids"] = old_config.get("submit_task_ids", refreshed.get("submit_task_ids", ""))
 
         path = self.config_dir / GAME_FILES[game]
         path.write_text(json.dumps(refreshed, ensure_ascii=False, indent=4), encoding="utf-8")
@@ -166,6 +169,7 @@ class GameConfigService:
 
         tasks: dict[str, dict[str, str]] = {}
         live_task_id = fallback.get("live_task_ids", "")
+        submit_task_id = fallback.get("submit_task_ids", "")
         for item in task_items:
             task_name = str(item.get("taskName") or item.get("name") or "").strip()
             task_id = str(item.get("taskId") or "").strip()
@@ -212,6 +216,7 @@ class GameConfigService:
             "TASKS": [tasks],
             "area_name": fallback.get("area_name", ""),
             "live_task_ids": live_task_id,
+            "submit_task_ids": submit_task_id,
             "area_v2": fallback.get("area_v2", 0),
             "activity_id": activity_id,
         }

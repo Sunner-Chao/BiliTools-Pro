@@ -1,0 +1,14 @@
+{
+  "credentialValidDays": 30,
+  "network": {
+    "timeout": 30,
+    "maxRetries": 3,
+    "userAgent": ""
+  },
+  "proxy": {
+    "enabled": false,
+    "type": "http",
+    "host": "",
+    "port": null
+  }
+}

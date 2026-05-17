@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 import httpx
+from .http_client import create_client
 
 from ..core.config import config
 from ..core.logging import get_logger
@@ -59,7 +60,7 @@ class BilibiliService:
     async def generate_qr_login(self) -> dict[str, Any]:
         """Generate QR code for login."""
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with create_client(timeout=30.0) as client:
                 # New B站 passport QR login API
                 resp = await client.get(
                     "https://passport.bilibili.com/x/passport-login/web/qrcode/generate",
@@ -97,7 +98,7 @@ class BilibiliService:
     async def check_qr_status(self, qr_key: str) -> dict[str, Any]:
         """Check QR code scan status."""
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with create_client(timeout=30.0) as client:
                 resp = await client.get(
                     "https://passport.bilibili.com/x/passport-login/web/qrcode/poll",
                     params={"qrcode_key": qr_key, "source": "main-fe-header"},
@@ -161,9 +162,9 @@ class BilibiliService:
         try:
             self._cookies = {"cookie": cookie_str}
 
-            async with httpx.AsyncClient(timeout=config.timeout) as client:
+            async with create_client(timeout=config.timeout) as client:
                 resp = await client.get(
-                    f"{config.bilibili_api_base}/nav",
+                    f"{config.bilibili_api_base}/x/web-interface/nav",
                     headers={**self._headers, "Cookie": cookie_str},
                 )
                 resp.raise_for_status()
@@ -193,7 +194,7 @@ class BilibiliService:
             return {"uid": None, "name": "未登录", "avatar": ""}
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with create_client(timeout=30.0) as client:
                 resp = await client.get(
                     "https://api.bilibili.com/x/web-interface/nav",
                     headers={
@@ -262,7 +263,7 @@ class BilibiliService:
         if not mid:
             return None
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with create_client(timeout=15.0) as client:
                 resp = await client.get(
                     "https://api.bilibili.com/x/space/acc/info",
                     params={"mid": mid},

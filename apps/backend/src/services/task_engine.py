@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 
 import httpx
+from .http_client import create_client
 
 from .bilibili import bilibili_service
 from .game_config import game_config_service
@@ -208,7 +209,7 @@ class TaskEngine:
             "Referer": f"https://www.bilibili.com/blackboard/new-award-exchange.html?task_id={item.get('id')}",
             "Origin": "https://www.bilibili.com",
         }
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with create_client(timeout=10.0) as client:
             response = await client.post(
                 "https://api.bilibili.com/x/activity_components/mission/receive",
                 params={"w_rid": w_rid, "wts": wts},
@@ -253,7 +254,7 @@ class TaskEngine:
             "Referer": f"https://www.bilibili.com/blackboard/era/award-exchange.html?task_id={task_id}",
         }
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with create_client(timeout=10.0) as client:
                 data = (await client.get(
                     "https://api.bilibili.com/x/activity_components/mission/info",
                     params=params,
@@ -293,7 +294,7 @@ class TaskEngine:
             "Referer": "https://www.bilibili.com/blackboard/era/award-exchange.html",
         }
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with create_client(timeout=10.0) as client:
                 data = (await client.get(
                     "https://api.bilibili.com/x/activity_components/mission/mylist",
                     params=params,

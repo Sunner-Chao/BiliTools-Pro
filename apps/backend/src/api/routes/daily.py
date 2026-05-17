@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 import httpx
+from src.services.http_client import create_client
 import qrcode
 
 from ..ipc_server import IPCServer
@@ -75,7 +76,7 @@ async def register(ipc: IPCServer) -> None:
 
     async def generate_audience_qr(slot: int) -> Dict[str, Any]:
         _check_slot(slot)
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        async with create_client(timeout=20.0) as client:
             payload = (await client.get(
                 "https://passport.bilibili.com/x/passport-login/web/qrcode/generate",
                 params={"source": "main-fe-header", "_": str(int(time.time() * 1000))},
@@ -105,7 +106,7 @@ async def register(ipc: IPCServer) -> None:
         if time.time() - float(session["createdAt"]) > 180:
             session["status"] = "expired"
             return {"status": "expired", "message": "二维码已过期"}
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        async with create_client(timeout=20.0) as client:
             response = await client.get(
                 "https://passport.bilibili.com/x/passport-login/web/qrcode/poll",
                 params={"qrcode_key": qr_key, "source": "main-fe-header", "_": str(int(time.time() * 1000))},
@@ -140,7 +141,7 @@ async def register(ipc: IPCServer) -> None:
     async def enter_live_room(slot: int, room_id: str, duration_minutes: int = 16) -> Dict[str, Any]:
         user = await _require_audience(slot)
         headers = _headers(daily_state.read_cookie(slot), f"https://live.bilibili.com/{room_id}")
-        async with httpx.AsyncClient(timeout=12.0) as client:
+        async with create_client(timeout=12.0) as client:
             payload = (await client.get(
                 "https://api.live.bilibili.com/xlive/web-room/v1/index/getInfoByRoom",
                 params={"room_id": room_id},
@@ -174,7 +175,7 @@ async def register(ipc: IPCServer) -> None:
             "csrf_token": csrf,
             "csrf": csrf,
         }
-        async with httpx.AsyncClient(timeout=12.0) as client:
+        async with create_client(timeout=12.0) as client:
             payload = (await client.post("https://api.live.bilibili.com/msg/send", data=data, headers=_headers(cookie, f"https://live.bilibili.com/{room_id}"))).json()
         ok = payload.get("code") == 0
         daily_state.log("success" if ok else "error", f"观众 {slot} {user['name']} 发送弹幕: code={payload.get('code')} message={payload.get('message') or payload.get('msg') or text}")
@@ -204,7 +205,7 @@ async def register(ipc: IPCServer) -> None:
             "csrf": csrf,
             "visit_id": "",
         }
-        async with httpx.AsyncClient(timeout=12.0) as client:
+        async with create_client(timeout=12.0) as client:
             payload = (await client.post("https://api.live.bilibili.com/xlive/revenue/v1/gift/sendGold", data=data, headers=_headers(cookie, f"https://live.bilibili.com/{room_id}"))).json()
         wallet = await _wallet(cookie)
         ok = payload.get("code") == 0
@@ -239,7 +240,7 @@ async def _require_audience(slot: int) -> dict[str, Any]:
 
 async def _fetch_user(cookie: str) -> dict[str, Any] | None:
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with create_client(timeout=10.0) as client:
             data = (await client.get("https://api.bilibili.com/x/web-interface/nav", headers=_headers(cookie))).json()
         if data.get("code") == 0 and data.get("data", {}).get("isLogin"):
             node = data["data"]
@@ -251,7 +252,7 @@ async def _fetch_user(cookie: str) -> dict[str, Any] | None:
 
 async def _wallet(cookie: str) -> dict[str, Any]:
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with create_client(timeout=10.0) as client:
             data = (await client.get(
                 "https://api.live.bilibili.com/xlive/revenue/v1/wallet/myWallet",
                 params={"need_bp": "0", "need_metal": "0", "platform": "pc", "bp_with_decimal": "0", "ios_bp_afford_party": "0"},

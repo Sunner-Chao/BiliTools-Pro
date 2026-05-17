@@ -1,10 +1,10 @@
 """Persistent application settings."""
 import json
+import os
 from pathlib import Path
 from typing import Any
 
-from .game_config import PRO_ROOT
-
+PRO_ROOT = Path(os.environ.get("BILITOOLS_PRO_ROOT", Path(__file__).resolve().parents[4])).resolve()
 
 DEFAULT_SETTINGS = {
     "credentialValidDays": 30,

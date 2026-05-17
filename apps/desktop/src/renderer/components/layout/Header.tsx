@@ -1,41 +1,67 @@
 import React from 'react';
-import { Layout, Space, Avatar, Dropdown, Badge } from 'antd';
-import { BellOutlined, UserOutlined, LogoutOutlined, SettingOutlined } from '@ant-design/icons';
+import { Avatar, Dropdown, Badge, Button, Tooltip } from 'antd';
+import { BellOutlined, UserOutlined, LogoutOutlined, SettingOutlined, BulbOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { useAppSelector, useAppDispatch } from '../../store/hooks';
 import { logout } from '../../store/slices/authSlice';
-
-const { Header: AntHeader } = Layout;
+import { setTheme } from '../../store/slices/uiSlice';
 
 const Header: React.FC = () => {
   const dispatch = useAppDispatch();
+  const navigate = useNavigate();
   const user = useAppSelector((state) => state.auth.user);
   const notifications = useAppSelector((state) => state.ui.notifications);
+  const theme = useAppSelector((state) => state.ui.theme);
 
   const userMenuItems = [
-    { key: 'settings', icon: <SettingOutlined />, label: '设置' },
+    {
+      key: 'settings',
+      icon: <SettingOutlined />,
+      label: '设置',
+      onClick: () => navigate('/settings'),
+    },
     { type: 'divider' as const },
-    { key: 'logout', icon: <LogoutOutlined />, label: '退出登录', onClick: () => dispatch(logout()) },
+    {
+      key: 'logout',
+      icon: <LogoutOutlined />,
+      label: '退出登录',
+      danger: true,
+      onClick: () => dispatch(logout()),
+    },
   ];
 
   return (
-    <AntHeader style={{ padding: '0 24px', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', boxShadow: '0 1px 4px rgba(0, 21, 41, 0.08)' }}>
-      <Space size="large">
+    <div className="bt-header">
+      <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+        <Tooltip title={theme === 'dark' ? '切换到白天模式' : '切换到夜间模式'}>
+          <Button
+            type="text"
+            shape="circle"
+            icon={<BulbOutlined />}
+            aria-label="切换主题"
+            onClick={() => dispatch(setTheme(theme === 'dark' ? 'light' : 'dark'))}
+            style={{ color: 'var(--bt-text-secondary)' }}
+          />
+        </Tooltip>
         <Badge count={notifications.length} size="small">
-          <BellOutlined style={{ fontSize: '18px', cursor: 'pointer', color: '#666' }} />
+          <BellOutlined style={{ fontSize: '16px', cursor: 'pointer', color: 'var(--bt-text-secondary)', transition: 'color 200ms' }} />
         </Badge>
-        <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
-          <Space style={{ cursor: 'pointer' }}>
+        <Dropdown menu={{ items: userMenuItems }} placement="bottomRight" trigger={['click']}>
+          <div className="bt-header-user">
             <Avatar
+              size={32}
               icon={<UserOutlined />}
-              src={user?.avatar ? <img src={user.avatar} alt={user.name} referrerPolicy="no-referrer" /> : undefined}
+              src={user?.avatar ? <img src={user.avatar} alt={user.name} referrerPolicy="no-referrer" style={{ borderRadius: '50%' }} /> : undefined}
+              style={{ background: 'linear-gradient(135deg, var(--bt-primary-active), var(--bt-primary))' }}
             />
-            <span>{user?.name || '未登录'}</span>
-            {user?.mid ? <span style={{ color: '#999' }}>UID {user.mid}</span> : null}
-            {user?.roomId ? <span style={{ color: '#999' }}>房间 {user.roomId}</span> : null}
-          </Space>
+            <div style={{ lineHeight: 1.3 }}>
+              <div className="bt-header-user-name">{user?.name || '未登录'}</div>
+              {user?.mid && <div className="bt-header-user-meta">UID {user.mid}</div>}
+            </div>
+          </div>
         </Dropdown>
-      </Space>
-    </AntHeader>
+      </div>
+    </div>
   );
 };
 

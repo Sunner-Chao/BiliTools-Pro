@@ -1,8 +1,5 @@
 import React from 'react';
-import { Layout, Space, Tag } from 'antd';
 import { useAppSelector } from '../../store/hooks';
-
-const { Footer } = Layout;
 
 const StatusBar: React.FC = () => {
   const isAuthenticated = useAppSelector((state) => state.auth.isAuthenticated);
@@ -11,14 +8,24 @@ const StatusBar: React.FC = () => {
   const activeTasks = tasks.filter((t) => t.status === 'running').length;
 
   return (
-    <Footer style={{ padding: '8px 24px', background: '#f0f2f5', borderTop: '1px solid #d9d9d9', display: 'flex', justifyContent: 'space-between' }}>
-      <Space>
-        <Tag color={isAuthenticated ? 'green' : 'default'}>{isAuthenticated ? '已登录' : '未登录'}</Tag>
-        <span style={{ color: '#666', fontSize: '12px' }}>任务: {activeTasks}/{tasks.length}</span>
-        {isStreaming && <Tag color="red">推流中</Tag>}
-      </Space>
-      <span style={{ color: '#999', fontSize: '12px' }}>BiliTools-Pro v1.0.0</span>
-    </Footer>
+    <div className="bt-status-bar">
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <span className={`bt-badge ${isAuthenticated ? 'bt-badge-success' : 'bt-badge-idle'}`}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor', display: 'inline-block' }} />
+          {isAuthenticated ? '已登录' : '未登录'}
+        </span>
+        <span style={{ color: 'var(--bt-text-secondary)', fontSize: '12px' }}>
+          任务: <span style={{ color: 'var(--bt-text-primary)', fontWeight: 600 }}>{activeTasks}</span>/{tasks.length}
+        </span>
+        {isStreaming && (
+          <span className="bt-badge bt-badge-error">
+            <span className="bt-pulse" />
+            推流中
+          </span>
+        )}
+      </div>
+      <span style={{ color: 'var(--bt-text-disabled)', fontSize: '12px' }}>BiliTools-Pro v1.0.0</span>
+    </div>
   );
 };
 

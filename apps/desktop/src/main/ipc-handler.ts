@@ -19,15 +19,56 @@ interface IpcResponse {
 
 let socket: net.Socket | null = null;
 let requestId = 0;
+let reconnectTimer: NodeJS.Timeout | null = null;
+let connectPromise: Promise<void> | null = null;
 const pendingRequests = new Map<number, { resolve: (value: unknown) => void; reject: (reason: unknown) => void }>();
 
-function connect(): void {
+function isConnected(): boolean {
+  return Boolean(socket && !socket.destroyed && socket.readyState === 'open');
+}
+
+function scheduleReconnect(): void {
+  if (reconnectTimer) return;
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connect().catch(() => {
+      scheduleReconnect();
+    });
+  }, 1000);
+}
+
+function connect(): Promise<void> {
+  if (isConnected()) return Promise.resolve();
+  if (connectPromise) return connectPromise;
+
   socket = new net.Socket();
-  socket.connect(IPC_PORT, IPC_HOST, () => {
-    console.log('[IPC] Connected to backend');
+  connectPromise = new Promise((resolve, reject) => {
+    const failTimer = setTimeout(() => {
+      reject(new Error('Backend connection timeout'));
+    }, 12000);
+
+    socket!.connect(IPC_PORT, IPC_HOST, () => {
+      clearTimeout(failTimer);
+      connectPromise = null;
+      console.log('[IPC] Connected to backend');
+      resolve();
+    });
+
+    socket!.once('error', (err) => {
+      clearTimeout(failTimer);
+      connectPromise = null;
+      reject(err);
+    });
   });
-  socket.on('error', (err) => console.error('[IPC] Connection error:', err));
-  socket.on('close', () => console.log('[IPC] Disconnected, reconnecting...'));
+  socket.on('error', (err) => {
+    console.error('[IPC] Connection error:', err);
+    scheduleReconnect();
+  });
+  socket.on('close', () => {
+    connectPromise = null;
+    console.log('[IPC] Disconnected, reconnecting...');
+    scheduleReconnect();
+  });
 
   let buffer = '';
   socket.on('data', (data) => {
@@ -54,22 +95,32 @@ function connect(): void {
     }
   });
 
-  setTimeout(() => {
-    if (socket?.destroyed) connect();
-  }, 3000);
+  return connectPromise;
 }
 
-function sendRequest(method: string, params?: Record<string, unknown>): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    if (!socket || socket.destroyed) {
-      reject(new Error('Not connected to backend'));
-      return;
+async function waitForBackend(): Promise<void> {
+  const startedAt = Date.now();
+  while (!isConnected()) {
+    try {
+      await connect();
+      if (isConnected()) return;
+    } catch {
+      if (Date.now() - startedAt > 15000) {
+        throw new Error('后端服务尚未就绪，请稍后重试');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 600));
     }
+  }
+}
 
+async function sendRequest(method: string, params?: Record<string, unknown>): Promise<unknown> {
+  await waitForBackend();
+
+  return new Promise((resolve, reject) => {
     const id = ++requestId;
     const request: IpcRequest = { id, method, params };
     pendingRequests.set(id, { resolve, reject });
-    socket.write(JSON.stringify(request) + '\n');
+    socket!.write(JSON.stringify(request) + '\n');
 
     setTimeout(() => {
       if (pendingRequests.has(id)) {
@@ -81,7 +132,9 @@ function sendRequest(method: string, params?: Record<string, unknown>): Promise<
 }
 
 export function setupIpcHandlers(): void {
-  connect();
+  connect().catch(() => {
+    scheduleReconnect();
+  });
 
   // Window controls
   ipcMain.handle('window:minimize', () => {

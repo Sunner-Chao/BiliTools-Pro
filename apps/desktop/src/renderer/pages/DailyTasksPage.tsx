@@ -48,17 +48,11 @@ const DailyTasksPage: React.FC = () => {
     try {
       const values = await form.validateFields();
       const result = await action(values);
-      if (result?.success) {
-        message.success(okText);
-      } else {
-        message.warning(result?.response?.message || result?.error || '接口返回失败');
-      }
+      if (result?.success) { message.success(okText); }
+      else { message.warning(result?.response?.message || result?.error || '接口返回失败'); }
       await loadStatus();
-    } catch (error: any) {
-      message.error(error?.message || '操作失败');
-    } finally {
-      setLoading(false);
-    }
+    } catch (error: any) { message.error(error?.message || '操作失败'); }
+    finally { setLoading(false); }
   };
 
   const generateQR = async (slot: number) => {
@@ -66,14 +60,9 @@ const DailyTasksPage: React.FC = () => {
     setQrMessage('');
     try {
       const result = await window.api.daily.audienceQR(slot);
-      if (result?.success) {
-        setQrInfo(result);
-      } else {
-        message.error(result?.error || '二维码生成失败');
-      }
-    } finally {
-      setLoading(false);
-    }
+      if (result?.success) { setQrInfo(result); }
+      else { message.error(result?.error || '二维码生成失败'); }
+    } finally { setLoading(false); }
   };
 
   const saveCookie = async () => {
@@ -86,19 +75,26 @@ const DailyTasksPage: React.FC = () => {
       setActiveSlot(null);
       cookieForm.resetFields();
       await loadStatus();
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   const logColumns = [
     { title: '时间', dataIndex: 'time', key: 'time', width: 90 },
     { title: '级别', dataIndex: 'level', key: 'level', width: 90, render: (value: string) => <Tag color={value === 'error' ? 'red' : value === 'success' ? 'green' : 'blue'}>{value}</Tag> },
-    { title: '输出', dataIndex: 'message', key: 'message', render: (value: string) => <Typography.Text style={{ whiteSpace: 'pre-wrap' }}>{value}</Typography.Text> },
+    { title: '输出', dataIndex: 'message', key: 'message', render: (value: string) => <Typography.Text style={{ whiteSpace: 'pre-wrap', color: 'var(--bt-text-secondary)' }}>{value}</Typography.Text> },
   ];
 
   return (
-    <div style={{ padding: 24 }}>
+    <div>
+      {/* Page header */}
+      <div className="bt-page-header bt-animate-fade-in">
+        <div className="bt-page-header-bar" />
+        <div>
+          <h1>每日任务系统</h1>
+          <p>观众扫码身份 · 进房 · 发弹幕 · 赠送礼物</p>
+        </div>
+      </div>
+
       <Row gutter={16}>
         <Col span={8}>
           <Card title="每日任务系统">
@@ -121,7 +117,7 @@ const DailyTasksPage: React.FC = () => {
               <Col span={12} key={slot.slot}>
                 <Card
                   size="small"
-                  title={`观众 ${slot.slot}`}
+                  title={<span style={{ color: 'var(--bt-text-primary)' }}>观众 {slot.slot}</span>}
                   extra={<Tag color={slot.isValid ? 'green' : slot.hasCookie ? 'gold' : 'default'}>{slot.isValid ? slot.name : slot.hasCookie ? '待验证' : '未配置'}</Tag>}
                 >
                   <Space wrap>
@@ -131,7 +127,7 @@ const DailyTasksPage: React.FC = () => {
                     <Button loading={loading} icon={<MessageOutlined />} onClick={() => run((values) => window.api.daily.sendDanmaku(slot.slot, values.roomId, values.message), '弹幕已发送')}>发送弹幕*1</Button>
                     <Button loading={loading} icon={<GiftOutlined />} danger onClick={() => run((values) => window.api.daily.sendGift(slot.slot, values.roomId), '礼物请求已发送')}>赠送牛蛙*1</Button>
                   </Space>
-                  {slot.liveEntry ? <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>已进入 {slot.liveEntry.roomId}，到 {slot.liveEntry.expiresAt}</Typography.Paragraph> : null}
+                  {slot.liveEntry ? <Typography.Paragraph style={{ marginTop: 12, marginBottom: 0, color: 'var(--bt-text-secondary)', fontSize: 12 }}>已进入 {slot.liveEntry.roomId}，到 {slot.liveEntry.expiresAt}</Typography.Paragraph> : null}
                 </Card>
               </Col>
             ))}
@@ -153,10 +149,12 @@ const DailyTasksPage: React.FC = () => {
         ]}
       >
         <Space direction="vertical" style={{ width: '100%', alignItems: 'center' }}>
-          {qrInfo?.qrUrl ? <img src={qrInfo.qrUrl} alt="观众扫码登录" style={{ width: 220, height: 220 }} /> : <Typography.Text type="secondary">二维码生成中...</Typography.Text>}
-          <Typography.Text type="secondary">{qrMessage || '请使用哔哩哔哩 APP 扫码并确认登录'}</Typography.Text>
+          {qrInfo?.qrUrl ? <img src={qrInfo.qrUrl} alt="观众扫码登录" style={{ width: 220, height: 220, borderRadius: 12 }} /> : <Typography.Text style={{ color: 'var(--bt-text-secondary)' }}>二维码生成中...</Typography.Text>}
+          <Typography.Text style={{ color: 'var(--bt-text-secondary)' }}>{qrMessage || '请使用哔哩哔哩 APP 扫码并确认登录'}</Typography.Text>
         </Space>
-        <Typography.Paragraph type="secondary" style={{ marginTop: 16, marginBottom: 8 }}>备用：如扫码接口不可用，可手动粘贴观众 Cookie。</Typography.Paragraph>
+        <Typography.Paragraph style={{ marginTop: 16, marginBottom: 8, color: 'var(--bt-text-secondary)', fontSize: 13 }}>
+          备用：如扫码接口不可用，可手动粘贴观众 Cookie。
+        </Typography.Paragraph>
         <Form form={cookieForm} layout="vertical">
           <Form.Item name="cookie" label="观众 B 站 Cookie">
             <Input.TextArea rows={3} placeholder="SESSDATA=...; bili_jct=...;" />

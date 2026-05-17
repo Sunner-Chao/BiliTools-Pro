@@ -20,13 +20,8 @@ const SettingsPage: React.FC = () => {
     try {
       const values = await form.validateFields();
       const result = await window.api.settings.save(values);
-      if (result?.success) {
-        message.success('设置已保存');
-        await load();
-      }
-    } finally {
-      setLoading(false);
-    }
+      if (result?.success) { message.success('设置已保存'); await load(); }
+    } finally { setLoading(false); }
   };
 
   const gameColumns = [
@@ -68,11 +63,17 @@ const SettingsPage: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: 24 }}>
-      <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 16 }}>
-        <h1 style={{ margin: 0 }}>设置</h1>
-        <Button icon={<ReloadOutlined />} onClick={load}>刷新真实状态</Button>
-      </Space>
+    <div>
+      {/* Page header */}
+      <div className="bt-page-header bt-animate-fade-in">
+        <div className="bt-page-header-bar" />
+        <div>
+          <h1>设置</h1>
+          <p>应用配置与资源管理</p>
+        </div>
+        <Button icon={<ReloadOutlined />} onClick={load} style={{ marginLeft: 'auto' }}>刷新真实状态</Button>
+      </div>
+
       <Form form={form} layout="vertical">
         <Tabs
           items={[
@@ -92,7 +93,7 @@ const SettingsPage: React.FC = () => {
                   <Form.Item name="credentialValidDays" label="凭证复用窗口(天)" style={{ marginTop: 16 }} rules={[{ required: true }]}>
                     <InputNumber min={1} max={180} style={{ width: 240 }} />
                   </Form.Item>
-                  <p style={{ color: '#666' }}>打开软件时会先读取本地 Cookie；只要仍在这个窗口内且 B 站接口验证有效，就不会要求重新扫码。</p>
+                  <p style={{ color: 'var(--bt-text-secondary)', fontSize: 13, lineHeight: 1.6 }}>打开软件时会先读取本地 Cookie；只要仍在这个窗口内且 B 站接口验证有效，就不会要求重新扫码。</p>
                   <Button type="primary" icon={<SaveOutlined />} loading={loading} onClick={save}>保存凭证策略</Button>
                 </Card>
               ),
@@ -102,7 +103,12 @@ const SettingsPage: React.FC = () => {
               label: '资源与游戏',
               children: (
                 <Space direction="vertical" style={{ width: '100%' }} size={16}>
-                  <Card title="运行目录">
+                  <Card title={
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div style={{ width: 4, height: 16, borderRadius: 2, background: 'var(--bt-primary)' }} />
+                      <span>运行目录</span>
+                    </div>
+                  }>
                     <Descriptions bordered size="small" column={1}>
                       <Descriptions.Item label="config">{state.resources?.paths?.config || '-'}</Descriptions.Item>
                       <Descriptions.Item label="cookies">{state.resources?.paths?.cookies || '-'}</Descriptions.Item>

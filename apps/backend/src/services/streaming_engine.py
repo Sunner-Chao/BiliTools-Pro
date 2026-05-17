@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from .http_client import create_client
 
 from .bilibili import bilibili_service
 from .game_config import game_config_service
@@ -192,7 +193,7 @@ class StreamingEngine:
             "referer": "https://link.bilibili.com/p/center/index",
             "user-agent": bilibili_service.user_agent,
         }
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with create_client(timeout=15.0) as client:
             response = await client.post(
                 "https://api.live.bilibili.com/room/v1/Room/startLive",
                 headers=headers,
@@ -220,7 +221,7 @@ class StreamingEngine:
         }
         data = {"room_id": room_id, "platform": "pc", "csrf_token": csrf, "csrf": csrf}
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with create_client(timeout=15.0) as client:
                 payload = (await client.post(
                     "https://api.live.bilibili.com/room/v1/Room/stopLive",
                     headers=headers,

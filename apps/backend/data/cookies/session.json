@@ -1,0 +1,26 @@
+{
+  "cookie": "SESSDATA=d9567660%2C1794544443%2C85d5b%2A52CjD8x630poJM3eB9yNZKbwlTiWmp3OxtgM8MwSwZBgi8SKIYz1gXBrM7PO5-ndnfajoSVkFDLVlZTEt3cGFGcmRLTGVWV0I3YW9KRTNRMDc0T2loQTVqclp1Vm5QQWFIVWJpenFFOXFZTS1USVVJWnJ5N21valFVYmVZczdXMG5zZWxndk5NWTh3IIEC; bili_jct=8b352d1dbaab883a8c202f3c172d4148; DedeUserID=365734951; DedeUserID__ckMd5=32c5d0ed0935194f; sid=edp4lokv",
+  "uid": null,
+  "refresh_token": "4f8283d34ace3f6911f5e42408398052",
+  "csrf": "8b352d1dbaab883a8c202f3c172d4148",
+  "cookie_dict": {
+    "SESSDATA": "d9567660%2C1794544443%2C85d5b%2A52CjD8x630poJM3eB9yNZKbwlTiWmp3OxtgM8MwSwZBgi8SKIYz1gXBrM7PO5-ndnfajoSVkFDLVlZTEt3cGFGcmRLTGVWV0I3YW9KRTNRMDc0T2loQTVqclp1Vm5QQWFIVWJpenFFOXFZTS1USVVJWnJ5N21valFVYmVZczdXMG5zZWxndk5NWTh3IIEC",
+    "bili_jct": "8b352d1dbaab883a8c202f3c172d4148",
+    "DedeUserID": "365734951",
+    "DedeUserID__ckMd5": "32c5d0ed0935194f",
+    "sid": "edp4lokv"
+  },
+  "saved_at": "2026-05-17T12:34:04",
+  "expires_at": "2026-06-16T12:34:04",
+  "user": {
+    "uid": 365734951,
+    "mid": 365734951,
+    "name": "会飛的玩具",
+    "avatar": "https://i1.hdslb.com/bfs/face/7c9774ea6839e954d1790664c72a154cf12c4f92.jpg",
+    "vipStatus": 0,
+    "level": 5,
+    "roomId": 25528268,
+    "csrf": "8b352d1dbaab883a8c202f3c172d4148",
+    "isLogin": true
+  }
+}

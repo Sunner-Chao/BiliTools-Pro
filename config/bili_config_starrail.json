@@ -1,0 +1,83 @@
+{
+    "TASKS": [
+        {
+            "新人直播累计1天奖励(1通票)": {
+                "id": "18ERA1wloghvgcu00",
+                "description": "星轨通票*1"
+            },
+            "新人直播累计3天奖励(50星琼)": {
+                "id": "18ERA1wloghvggp00",
+                "description": "限定50星琼"
+            },
+            "新人直播累计5天奖励(2通票)": {
+                "id": "18ERA1wloghvgc500",
+                "description": "星轨通票*2"
+            },
+            "新人直播累计10天奖励(200星琼)": {
+                "id": "18ERA1wloghvgoh00",
+                "description": "限200星琼"
+            },       
+            "上半-限时开播任务(50星琼)": {
+                "id": "6ERA4wloghvb4j00",
+                "description": "限时50星琼"
+            },
+            "上半-直播累计3天奖励(2通票)": {
+                "id": "18ERA1wloghvgl900",
+                "description": "上半-直播累计3天奖励"
+            },
+            "上半-直播累计5天奖励(600星琼)": {
+                "id": "18ERA1wloghvgzv00",
+                "description": "上半-直播累计5天奖励"
+            },
+            "上半-直播累计10天奖励(800星琼)": {
+                "id": "18ERA1wloghvgt800",
+                "description": "上半-直播累计10天奖励"
+            },
+            "上半-直播累计15天奖励(1000星琼)": {
+                "id": "18ERA1wloghvf8z00",
+                "description": "上半-直播累计15天奖励"
+            },           
+            "投稿播放量大于5万(星琼*300)": {
+                "id": "6ERA4wloghvnlv00",
+                "description": "星琼*300"
+            },
+            "投稿播放量大于10万((星琼*600)": {
+                "id": "6ERA4wloghvn8k00",
+                "description": "星琼*600"
+            },
+            "投稿播放量大于30万((星琼*1000)": {
+                "id": "6ERA4wloghvn8j00",
+                "description": "星琼*1000"
+            },
+            "上半-投稿累计1天奖励(50星琼)": {
+                "id": "6ERA4wloghvm7y00",
+                "description": "上半-投稿累计1天奖励"
+            },
+            "上半-投稿累计3天奖励(1通票)": {
+                "id": "6ERA4wloghvn7100",
+                "description": "上半-投稿累计3天奖励"
+            },
+            "上半-投稿累计5天奖励-播放量大于1000(300星琼)": {
+                "id": "6ERA4wloghvmui00",
+                "description": "上半-投稿累计5天奖励"
+            },
+            "上半-投稿累计7天奖励-播放量大于2000(500星琼)": {
+                "id": "6ERA4wloghvn5y00",
+                "description": "上半-投稿累计7天奖励"
+            },          
+            "每日奖励-开播满60分钟+累计观看时长大于15分钟(冒险记录*6+遗失碎金*5)": {
+                "id": "6ERA4wloghvn9300",
+                "description": "每日奖励1"
+            },
+            "每日奖励-发弹幕人数大于4人+收到礼物大于2电池(信用点*11111+漫游指南*2)": {
+                "id": "6ERA4wloghvmyb00",
+                "description": "每日奖励2"
+            }
+           
+        }
+    ],
+    "area_name":"崩铁",
+    "live_task_ids":"6ERA4wloghvmyv00",
+    "submit_task_ids":"6ERA3wloghvot100",
+    "area_v2":549
+}

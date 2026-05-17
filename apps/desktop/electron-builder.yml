@@ -7,6 +7,7 @@ files:
   - '!node_modules/**/*'
 asar: true
 win:
+  signAndEditExecutable: false
   target:
     - target: nsis
       arch: [x64]

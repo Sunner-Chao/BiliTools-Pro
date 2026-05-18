@@ -2,14 +2,22 @@
 import asyncio
 import base64
 import io
+import json
 import os
 import random
 import re
+import secrets
+import shutil
+import socket
+import subprocess
+import sys
 import time
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict
 from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.request import urlopen
 
 import httpx
 from src.services.http_client import create_client
@@ -18,6 +26,7 @@ import qrcode
 from ..ipc_server import IPCServer
 from src.services.bilibili import bilibili_service
 from src.services.game_config import PRO_ROOT
+from src.services.app_settings import app_settings_service
 
 
 SLOT_COUNT = 4
@@ -37,6 +46,10 @@ class DailyTaskState:
         self.wallet_cache: dict[int, dict[str, Any]] = {}
         self.recharge_cache: dict[str, Any] = {}
         self.entry_tasks: dict[int, asyncio.Task] = {}
+        self.api_watch_tasks: dict[int, asyncio.Task] = {}
+        self.browser_tasks: dict[int, asyncio.Task] = {}
+        self.browser_processes: dict[int, subprocess.Popen] = {}
+        self.browser_profiles: dict[int, Path] = {}
 
     def log(self, level: str, message: str) -> None:
         self.logs.append({"time": datetime.now().strftime("%H:%M:%S"), "level": level, "message": message})
@@ -195,7 +208,7 @@ async def register(ipc: IPCServer) -> None:
         if not confirm:
             raise RuntimeError("创建充值订单需要用户二次确认")
         user = await _require_audience(slot)
-        cookie = daily_state.read_cookie(slot)
+        cookie = await _refresh_cookie_via_homepage(daily_state.read_cookie(slot))
         room = await _live_room_info(cookie, room_id)
         if room.get("code") != 0:
             return {"success": False, "error": room.get("message") or "直播间信息获取失败", "room": room}
@@ -218,7 +231,7 @@ async def register(ipc: IPCServer) -> None:
         daily_state.log("info", f"观众 {slot} {user['name']} 查询充值订单 {order_id}: {result.get('statusText')}")
         return {"success": result.get("code") == 0, "user": user, "order": result}
 
-    async def enter_live_room(slot: int, room_id: str, duration_minutes: int = 16) -> Dict[str, Any]:
+    async def enter_live_room(slot: int, room_id: str, duration_minutes: int = 16, mode: str = "api") -> Dict[str, Any]:
         user = await _require_audience(slot)
         cookie = daily_state.read_cookie(slot)
         room = await _live_room_info(cookie, room_id)
@@ -237,6 +250,13 @@ async def register(ipc: IPCServer) -> None:
         daily_state.entry_tasks[slot] = asyncio.create_task(
             _keep_live_room_active(slot, user["name"], cookie, room.get("roomId") or room_id, max(duration_minutes, 1))
         )
+        api_watch = await _start_live_watch_api(slot, user["name"], cookie, room.get("roomId") or room_id, max(duration_minutes, 1))
+        browser = None
+        if mode in ("browser", "headless"):
+            browser = await _open_live_room_browser(slot, user["name"], cookie, room.get("roomId") or room_id, max(duration_minutes, 1), headless=mode == "headless")
+            if not browser.get("success"):
+                daily_state.log("error", f"观众 {slot} 浏览器进房失败: {browser.get('error')}")
+                return {"success": False, "response": room.get("response"), "actions": actions, "apiWatch": api_watch, "browser": browser}
         daily_state.live_entries[slot] = {
             "roomId": room.get("roomId") or room_id,
             "shortId": room.get("shortId"),
@@ -244,10 +264,15 @@ async def register(ipc: IPCServer) -> None:
             "anchor": room.get("anchor"),
             "name": user["name"],
             "expiresAt": expires_at.isoformat(timespec="seconds"),
+            "mode": mode,
             "actions": actions,
+            "apiWatch": api_watch,
+            "browser": browser,
         }
-        daily_state.log("success", f"观众 {slot} {user['name']} 已进入直播间 {room.get('roomId') or room_id}，保活 {duration_minutes} 分钟")
-        return {"success": True, "response": room.get("response"), "actions": actions, "entry": daily_state.live_entries[slot]}
+        if browser:
+            daily_state.log("info", f"观众 {slot} 浏览器进房顺序: 打开 B站首页 -> 注入 Cookie -> 刷新登录态 -> 跳转直播间")
+        daily_state.log("success", f"观众 {slot} {user['name']} 已进入直播间 {room.get('roomId') or room_id}，模式 {mode}，保活 {duration_minutes} 分钟")
+        return {"success": True, "response": room.get("response"), "actions": actions, "apiWatch": api_watch, "browser": browser, "entry": daily_state.live_entries[slot]}
 
     async def send_danmaku(slot: int, room_id: str, message: str = "") -> Dict[str, Any]:
         user = await _require_audience(slot)
@@ -343,6 +368,16 @@ async def _fetch_user(cookie: str) -> dict[str, Any] | None:
     except Exception:
         return None
     return None
+
+
+async def _refresh_cookie_via_homepage(cookie: str) -> str:
+    try:
+        async with create_client(timeout=12.0, follow_redirects=True) as client:
+            response = await client.get("https://www.bilibili.com/", headers=_headers(cookie, "https://www.bilibili.com/"))
+        updates = [header.split(";", 1)[0].strip() for header in response.headers.get_list("set-cookie") if "=" in header.split(";", 1)[0]]
+        return _merge_cookie_string(cookie, "; ".join(updates)) if updates else cookie
+    except Exception:
+        return cookie
 
 
 async def _wallet(cookie: str) -> dict[str, Any]:
@@ -454,6 +489,437 @@ async def _keep_live_room_active(slot: int, name: str, cookie: str, room_id: str
         daily_state.log("info", f"观众 {slot} {name} 直播间 {room_id} 保活结束")
     except asyncio.CancelledError:
         daily_state.log("info", f"观众 {slot} {name} 直播间 {room_id} 保活已替换")
+
+
+async def _start_live_watch_api(slot: int, name: str, cookie: str, room_id: str, duration_minutes: int) -> dict[str, Any]:
+    old_task = daily_state.api_watch_tasks.pop(slot, None)
+    if old_task and not old_task.done():
+        old_task.cancel()
+    context = await _live_watch_api_enter(cookie, room_id)
+    if not context.get("success"):
+        daily_state.log("error", f"观众 {slot} {name} API 观看心跳启动失败: {context.get('error') or context.get('message')}")
+        return context
+    daily_state.api_watch_tasks[slot] = asyncio.create_task(_live_watch_api_loop(slot, name, cookie, context, duration_minutes))
+    daily_state.log("success", f"观众 {slot} {name} API 观看心跳已启动: interval={context.get('heartbeatInterval')}s")
+    return context
+
+
+async def _live_watch_api_enter(cookie: str, room_id: str) -> dict[str, Any]:
+    try:
+        async with create_client(timeout=15.0) as client:
+            base = (await client.get(
+                "https://api.live.bilibili.com/xlive/web-room/v1/index/getRoomBaseInfo",
+                params={"room_ids": room_id, "req_biz": "web_heartbeat"},
+                headers=_headers(cookie, f"https://live.bilibili.com/{room_id}"),
+            )).json()
+            room_map = base.get("data", {}).get("by_room_ids", {}) if isinstance(base.get("data"), dict) else {}
+            room_info = room_map.get(str(room_id)) or next(iter(room_map.values()), {})
+            if base.get("code") != 0 or not room_info:
+                return {"success": False, "error": base.get("message") or "房间心跳基础信息获取失败", "response": base}
+            buvid = _cookie_value(cookie, "LIVE_BUVID") or _cookie_value(cookie, "buvid3") or str(uuid.uuid4())
+            context = {
+                "roomId": str(room_info.get("room_id") or room_id),
+                "parentAreaId": room_info.get("parent_area_id"),
+                "areaId": room_info.get("area_id"),
+                "ruid": room_info.get("uid"),
+                "buvid": buvid,
+                "deviceId": str(uuid.uuid4()),
+                "seq": 1,
+                "ua": bilibili_service.user_agent,
+                "trackid": "-999998",
+            }
+            enter = (await client.post(
+                "https://live-trace.bilibili.com/xlive/data-interface/v1/x25Kn/E",
+                params={**_live_watch_enter_payload(context), "web_location": "444.8"},
+                headers=_headers(cookie, f"https://live.bilibili.com/{room_id}"),
+            )).json()
+        if enter.get("code") != 0:
+            return {"success": False, "error": enter.get("message") or enter.get("msg") or "观看进入心跳失败", "response": enter, **context}
+        data = enter.get("data", {}) if isinstance(enter.get("data"), dict) else {}
+        context.update({
+            "success": True,
+            "mode": "api-watch",
+            "timestamp": data.get("timestamp"),
+            "heartbeatInterval": int(data.get("heartbeat_interval") or 60),
+            "secretKey": data.get("secret_key"),
+            "secretRule": data.get("secret_rule"),
+            "enterResponse": enter,
+        })
+        return context
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+
+
+async def _live_watch_api_loop(slot: int, name: str, cookie: str, context: dict[str, Any], duration_minutes: int) -> None:
+    end_ts = time.time() + duration_minutes * 60
+    interval = int(context.get("heartbeatInterval") or 60)
+    try:
+        while time.time() + 3 < end_ts:
+            await asyncio.sleep(min(interval, max(1, end_ts - time.time())))
+            if time.time() >= end_ts:
+                break
+            result = await _live_watch_api_heartbeat(cookie, context, interval)
+            ok = result.get("code") == 0
+            daily_state.log("success" if ok else "error", f"观众 {slot} {name} API 观看心跳: code={result.get('code')} {result.get('message') or result.get('statusText') or ''}".strip())
+        daily_state.log("info", f"观众 {slot} {name} API 观看心跳结束")
+    except asyncio.CancelledError:
+        daily_state.log("info", f"观众 {slot} {name} API 观看心跳已替换")
+
+
+async def _live_watch_api_heartbeat(cookie: str, context: dict[str, Any], watch_time: int) -> dict[str, Any]:
+    context["seq"] = int(context.get("seq") or 1) + 1
+    context["watchTime"] = watch_time
+    payload = _live_watch_heartbeat_payload(context)
+    try:
+        async with create_client(timeout=15.0) as client:
+            response = (await client.post(
+                "https://live-trace.bilibili.com/xlive/data-interface/v1/x25Kn/X",
+                params={**payload, "web_location": "444.8"},
+                headers=_headers(cookie, f"https://live.bilibili.com/{context.get('roomId')}"),
+            )).json()
+        data = response.get("data", {}) if isinstance(response.get("data"), dict) else {}
+        if data.get("heartbeat_interval"):
+            context["heartbeatInterval"] = int(data.get("heartbeat_interval") or context.get("heartbeatInterval") or 60)
+        if data.get("timestamp"):
+            context["timestamp"] = data.get("timestamp")
+        if data.get("secret_key"):
+            context["secretKey"] = data.get("secret_key")
+        if data.get("secret_rule"):
+            context["secretRule"] = data.get("secret_rule")
+        return {"code": response.get("code"), "message": response.get("message") or response.get("msg"), "response": response}
+    except Exception as exc:
+        return {"code": -1, "message": str(exc)}
+
+
+def _live_watch_enter_payload(context: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": _json_dumps([context.get("parentAreaId"), context.get("areaId"), context.get("seq"), int(context.get("roomId"))]),
+        "device": _json_dumps([str(context.get("buvid") or ""), str(context.get("deviceId") or "")]),
+        "ruid": context.get("ruid"),
+        "ts": int(time.time() * 1000),
+        "is_patch": 0,
+        "heart_beat": "[]",
+        "ua": context.get("ua") or bilibili_service.user_agent,
+    }
+
+
+def _live_watch_heartbeat_payload(context: dict[str, Any]) -> dict[str, Any]:
+    data = {
+        "id": _json_dumps([context.get("parentAreaId"), context.get("areaId"), context.get("seq"), int(context.get("roomId"))]),
+        "device": _json_dumps([str(context.get("buvid") or ""), str(context.get("deviceId") or "")]),
+        "ruid": context.get("ruid"),
+        "ets": context.get("timestamp"),
+        "benchmark": context.get("secretKey"),
+        "time": context.get("watchTime") or context.get("heartbeatInterval") or 60,
+        "ts": int(time.time() * 1000),
+        "ua": context.get("ua") or bilibili_service.user_agent,
+        "trackid": context.get("trackid") or "-999998",
+    }
+    return {"s": _json_dumps(data), **data}
+
+
+async def _open_live_room_browser(slot: int, name: str, cookie: str, room_id: str, duration_minutes: int, headless: bool = False) -> dict[str, Any]:
+    browser_path = _find_browser_executable()
+    if not browser_path:
+        return {"success": False, "error": "未找到 Chrome/Edge 浏览器，可在 BILITOOLS_BROWSER_PATH 指定路径"}
+    close_task = daily_state.browser_tasks.pop(slot, None)
+    if close_task and not close_task.done():
+        close_task.cancel()
+    _close_live_browser(slot)
+    profile_dir = PRO_ROOT / "runtime" / "live_browser" / f"slot{slot}-{int(time.time())}"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    cookies = _browser_cookie_items(cookie)
+    if not cookies:
+        return {"success": False, "error": "观众 Cookie 为空，无法注入浏览器"}
+    base_url = "https://www.bilibili.com/"
+    live_url = f"https://live.bilibili.com/{room_id}?live_from=86001&spm_id_from=444.8.real_browser.0"
+    args = [
+        browser_path,
+        f"--user-data-dir={profile_dir}",
+        "--remote-debugging-port=0",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--autoplay-policy=no-user-gesture-required",
+        "--mute-audio",
+        "--new-window",
+        base_url,
+    ]
+    if headless:
+        args.insert(1, "--headless=new")
+        args.insert(2, "--disable-gpu")
+    if sys.platform.startswith("linux"):
+        args.insert(1, "--no-sandbox")
+    try:
+        process = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as exc:
+        shutil.rmtree(profile_dir, ignore_errors=True)
+        return {"success": False, "error": str(exc), "browserPath": browser_path}
+    control = await asyncio.to_thread(_drive_browser_with_cdp, profile_dir, cookies, base_url, live_url)
+    if not control.get("success"):
+        process.terminate()
+        shutil.rmtree(profile_dir, ignore_errors=True)
+        return {**control, "pid": process.pid, "browserPath": browser_path}
+    daily_state.browser_processes[slot] = process
+    daily_state.browser_profiles[slot] = profile_dir
+    daily_state.browser_tasks[slot] = asyncio.create_task(_close_live_browser_later(slot, name, room_id, duration_minutes))
+    return {
+        "success": True,
+        "mode": "real-browser",
+        "browserPath": browser_path,
+        "pid": process.pid,
+        "profile": str(profile_dir),
+        "baseUrl": base_url,
+        "url": live_url,
+        "cookieCount": len(cookies),
+        "sequence": "open-bilibili-refresh-then-live-room",
+        "control": control,
+    }
+
+
+async def _close_live_browser_later(slot: int, name: str, room_id: str, duration_minutes: int) -> None:
+    try:
+        await asyncio.sleep(duration_minutes * 60)
+        _close_live_browser(slot)
+        daily_state.log("info", f"观众 {slot} {name} 真实浏览器直播间 {room_id} 已按时关闭")
+    except asyncio.CancelledError:
+        pass
+
+
+def _drive_browser_with_cdp(profile_dir: Path, cookies: list[dict[str, str]], base_url: str, live_url: str) -> dict[str, Any]:
+    try:
+        ws_url = _wait_for_page_ws(profile_dir)
+        cdp = _MiniCDP(ws_url)
+        cdp.call("Network.enable")
+        cdp.call("Page.enable")
+        expires = int(time.time()) + 3600 * 24 * 30
+        cdp.call("Network.setCookies", {"cookies": [
+            {"name": item["name"], "value": item["value"], "domain": ".bilibili.com", "path": "/", "secure": True, "httpOnly": item["name"] in {"SESSDATA"}, "expires": expires}
+            for item in cookies
+        ]})
+        cdp.call("Page.navigate", {"url": base_url})
+        time.sleep(2)
+        cdp.call("Page.reload", {"ignoreCache": True})
+        time.sleep(2)
+        nav = cdp.call("Runtime.evaluate", {"expression": "document.cookie.includes('DedeUserID') || document.cookie.includes('SESSDATA')", "returnByValue": True})
+        cdp.call("Page.navigate", {"url": live_url})
+        time.sleep(1)
+        current = cdp.call("Runtime.evaluate", {"expression": "location.href", "returnByValue": True})
+        cdp.close()
+        return {
+            "success": True,
+            "method": "cdp",
+            "homepageRefreshed": True,
+            "loginCookieVisible": nav.get("result", {}).get("result", {}).get("value"),
+            "currentUrl": current.get("result", {}).get("result", {}).get("value"),
+        }
+    except Exception as exc:
+        return {"success": False, "error": f"CDP 控制浏览器失败: {exc}"}
+
+
+def _wait_for_page_ws(profile_dir: Path) -> str:
+    port_file = profile_dir / "DevToolsActivePort"
+    deadline = time.time() + 12
+    port = ""
+    while time.time() < deadline:
+        if port_file.exists():
+            lines = port_file.read_text(encoding="utf-8", errors="ignore").splitlines()
+            if lines:
+                port = lines[0].strip()
+                break
+        time.sleep(0.1)
+    if not port:
+        raise RuntimeError("未获取到 Chrome DevTools 端口")
+    deadline = time.time() + 8
+    while time.time() < deadline:
+        try:
+            with urlopen(f"http://127.0.0.1:{port}/json/list", timeout=2) as response:
+                pages = json.loads(response.read().decode("utf-8"))
+            for page in pages:
+                if page.get("type") == "page" and page.get("webSocketDebuggerUrl"):
+                    return page["webSocketDebuggerUrl"]
+        except Exception:
+            pass
+        time.sleep(0.2)
+    raise RuntimeError("未获取到可控制的浏览器页面")
+
+
+class _MiniCDP:
+    def __init__(self, ws_url: str) -> None:
+        parsed = urlparse(ws_url)
+        self.sock = socket.create_connection((parsed.hostname or "127.0.0.1", parsed.port or 80), timeout=8)
+        key = base64.b64encode(secrets.token_bytes(16)).decode("ascii")
+        path = parsed.path + (f"?{parsed.query}" if parsed.query else "")
+        request = (
+            f"GET {path} HTTP/1.1\r\n"
+            f"Host: {parsed.hostname}:{parsed.port}\r\n"
+            "Upgrade: websocket\r\n"
+            "Connection: Upgrade\r\n"
+            f"Sec-WebSocket-Key: {key}\r\n"
+            "Sec-WebSocket-Version: 13\r\n\r\n"
+        )
+        self.sock.sendall(request.encode("ascii"))
+        response = self.sock.recv(4096)
+        if b" 101 " not in response.split(b"\r\n", 1)[0]:
+            raise RuntimeError("WebSocket 握手失败")
+        self.next_id = 1
+
+    def call(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        msg_id = self.next_id
+        self.next_id += 1
+        self._send_json({"id": msg_id, "method": method, "params": params or {}})
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            message = self._recv_json()
+            if message.get("id") == msg_id:
+                if message.get("error"):
+                    raise RuntimeError(f"{method}: {message['error']}")
+                return message
+        raise RuntimeError(f"{method}: 等待响应超时")
+
+    def close(self) -> None:
+        try:
+            self.sock.close()
+        except Exception:
+            pass
+
+    def _send_json(self, payload: dict[str, Any]) -> None:
+        data = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        header = bytearray([0x81])
+        if len(data) < 126:
+            header.append(0x80 | len(data))
+        elif len(data) < 65536:
+            header.extend([0x80 | 126, (len(data) >> 8) & 255, len(data) & 255])
+        else:
+            header.append(0x80 | 127)
+            header.extend(len(data).to_bytes(8, "big"))
+        mask = secrets.token_bytes(4)
+        masked = bytes(byte ^ mask[i % 4] for i, byte in enumerate(data))
+        self.sock.sendall(bytes(header) + mask + masked)
+
+    def _recv_json(self) -> dict[str, Any]:
+        first = self._recv_exact(2)
+        opcode = first[0] & 0x0F
+        length = first[1] & 0x7F
+        if length == 126:
+            length = int.from_bytes(self._recv_exact(2), "big")
+        elif length == 127:
+            length = int.from_bytes(self._recv_exact(8), "big")
+        if first[1] & 0x80:
+            mask = self._recv_exact(4)
+            payload = bytes(byte ^ mask[i % 4] for i, byte in enumerate(self._recv_exact(length)))
+        else:
+            payload = self._recv_exact(length)
+        if opcode == 8:
+            raise RuntimeError("WebSocket 已关闭")
+        return json.loads(payload.decode("utf-8"))
+
+    def _recv_exact(self, size: int) -> bytes:
+        chunks = bytearray()
+        while len(chunks) < size:
+            chunk = self.sock.recv(size - len(chunks))
+            if not chunk:
+                raise RuntimeError("WebSocket 连接中断")
+            chunks.extend(chunk)
+        return bytes(chunks)
+
+
+def _close_live_browser(slot: int) -> None:
+    process = daily_state.browser_processes.pop(slot, None)
+    if process and process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+    profile = daily_state.browser_profiles.pop(slot, None)
+    if profile:
+        shutil.rmtree(profile, ignore_errors=True)
+
+
+def _find_browser_executable() -> str:
+    settings = app_settings_service.get()
+    configured = os.getenv("BILITOOLS_BROWSER_PATH") or settings.get("dailyBrowserPath") or settings.get("browserPath") or ""
+    if configured and Path(configured).exists():
+        return configured
+    for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "microsoft-edge", "msedge", "chrome"):
+        path = shutil.which(name)
+        if path:
+            return path
+    if sys.platform.startswith("win"):
+        candidates = [
+            Path(os.environ.get("PROGRAMFILES", "")) / "Google" / "Chrome" / "Application" / "chrome.exe",
+            Path(os.environ.get("PROGRAMFILES(X86)", "")) / "Google" / "Chrome" / "Application" / "chrome.exe",
+            Path(os.environ.get("LOCALAPPDATA", "")) / "Google" / "Chrome" / "Application" / "chrome.exe",
+            Path(os.environ.get("PROGRAMFILES", "")) / "Microsoft" / "Edge" / "Application" / "msedge.exe",
+            Path(os.environ.get("PROGRAMFILES(X86)", "")) / "Microsoft" / "Edge" / "Application" / "msedge.exe",
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                return str(candidate)
+    return ""
+
+
+def _browser_cookie_items(cookie: str) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    for part in cookie.split(";"):
+        name, _, value = part.strip().partition("=")
+        if name and value:
+            items.append({"name": name, "value": value})
+    return items
+
+
+def _write_cookie_loader_extension(extension_dir: Path, cookies: list[dict[str, str]], base_url: str, live_url: str) -> None:
+    manifest = {
+        "manifest_version": 3,
+        "name": "BiliTools Live Cookie Loader",
+        "version": "1.0.0",
+        "permissions": ["cookies", "tabs"],
+        "host_permissions": ["https://*.bilibili.com/*", "https://*.hdslb.com/*"],
+        "background": {"service_worker": "background.js"},
+    }
+    background = f"""
+const COOKIES = {json.dumps(cookies, ensure_ascii=False)};
+const BASE_URL = {json.dumps(base_url, ensure_ascii=False)};
+const LIVE_URL = {json.dumps(live_url, ensure_ascii=False)};
+const EXPIRATION = Math.floor(Date.now() / 1000) + 3600 * 24 * 30;
+
+function setCookie(item) {{
+  return new Promise((resolve) => {{
+    chrome.cookies.set({{
+      url: "https://www.bilibili.com/",
+      domain: ".bilibili.com",
+      path: "/",
+      name: item.name,
+      value: item.value,
+      secure: true,
+      expirationDate: EXPIRATION
+    }}, () => resolve(chrome.runtime.lastError ? chrome.runtime.lastError.message : "ok"));
+  }});
+}}
+
+async function run() {{
+  for (const item of COOKIES) {{
+    await setCookie(item);
+  }}
+  const tabs = await chrome.tabs.query({{}});
+  const first = tabs.find((tab) => tab.url === "about:blank" || (tab.url || "").startsWith("https://www.bilibili.com")) || tabs[0];
+  if (first && first.id) {{
+    await chrome.tabs.update(first.id, {{ url: BASE_URL, active: true }});
+    setTimeout(() => chrome.tabs.reload(first.id), 1200);
+    setTimeout(() => chrome.tabs.update(first.id, {{ url: LIVE_URL, active: true }}), 3600);
+  }} else {{
+    const tab = await chrome.tabs.create({{ url: BASE_URL, active: true }});
+    setTimeout(() => chrome.tabs.reload(tab.id), 1200);
+    setTimeout(() => chrome.tabs.update(tab.id, {{ url: LIVE_URL, active: true }}), 3600);
+  }}
+}}
+
+chrome.runtime.onInstalled.addListener(run);
+chrome.runtime.onStartup.addListener(run);
+run();
+"""
+    (extension_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    (extension_dir / "background.js").write_text(background, encoding="utf-8")
 
 
 async def _request_action(client: httpx.AsyncClient, name: str, method: str, url: str, **kwargs: Any) -> dict[str, Any]:
@@ -893,6 +1359,24 @@ def _csrf(cookie: str) -> str:
         if name == "bili_jct":
             return value
     return ""
+
+
+def _cookie_value(cookie: str, target: str) -> str:
+    for part in cookie.split(";"):
+        name, _, value = part.strip().partition("=")
+        if name == target:
+            return value
+    return ""
+
+
+def _merge_cookie_string(base_cookie: str, extra_cookie: str) -> str:
+    values: dict[str, str] = {}
+    for source in (base_cookie, extra_cookie):
+        for part in source.split(";"):
+            name, _, value = part.strip().partition("=")
+            if name and value:
+                values[name] = value
+    return "; ".join(f"{name}={value}" for name, value in values.items())
 
 
 def _cookies_from_login_response(response: httpx.Response, payload: dict[str, Any]) -> str:

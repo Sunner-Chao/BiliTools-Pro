@@ -49,7 +49,7 @@ const api = {
     rechargePanel: (slot: number, roomId?: string) => ipcRenderer.invoke('daily:rechargePanel', slot, roomId),
     createRechargeOrder: (slot: number, roomId: string, option: unknown, confirm?: boolean) => ipcRenderer.invoke('daily:createRechargeOrder', slot, roomId, option, confirm),
     queryRechargeOrder: (slot: number, orderId: string) => ipcRenderer.invoke('daily:queryRechargeOrder', slot, orderId),
-    enterLiveRoom: (slot: number, roomId: string, durationMinutes?: number) => ipcRenderer.invoke('daily:enterLiveRoom', slot, roomId, durationMinutes),
+    enterLiveRoom: (slot: number, roomId: string, durationMinutes?: number, mode?: string) => ipcRenderer.invoke('daily:enterLiveRoom', slot, roomId, durationMinutes, mode),
     sendDanmaku: (slot: number, roomId: string, message?: string) => ipcRenderer.invoke('daily:sendDanmaku', slot, roomId, message),
     sendGift: (slot: number, roomId: string) => ipcRenderer.invoke('daily:sendGift', slot, roomId),
   },

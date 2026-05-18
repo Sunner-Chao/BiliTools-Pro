@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Button, Card, Col, Divider, Form, Input, InputNumber, List, message, Modal, Row, Space, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Col, Divider, Form, Input, InputNumber, List, message, Modal, Row, Select, Space, Table, Tag, Typography } from 'antd';
 import { CheckCircleOutlined, GiftOutlined, LoginOutlined, MessageOutlined, QrcodeOutlined, ReloadOutlined, VideoCameraOutlined, WalletOutlined } from '@ant-design/icons';
 import { useAppSelector } from '../store/hooks';
 
@@ -22,7 +22,7 @@ const DailyTasksPage: React.FC = () => {
   };
 
   useEffect(() => {
-    form.setFieldsValue({ roomId: user?.roomId ? String(user.roomId) : '', durationMinutes: 16, message: '' });
+    form.setFieldsValue({ roomId: user?.roomId ? String(user.roomId) : '', durationMinutes: 16, entryMode: 'browser', message: '' });
     loadStatus();
     const timer = window.setInterval(loadStatus, 2000);
     return () => window.clearInterval(timer);
@@ -187,6 +187,15 @@ const DailyTasksPage: React.FC = () => {
               <Form.Item name="durationMinutes" label="去直播间保持时间(分钟)">
                 <InputNumber min={1} max={240} style={{ width: '100%' }} />
               </Form.Item>
+              <Form.Item name="entryMode" label="进入方式">
+                <Select
+                  options={[
+                    { value: 'browser', label: '可见浏览器复刻原 src' },
+                    { value: 'api', label: 'API 观看心跳（轻量）' },
+                    { value: 'headless', label: '无头浏览器兜底' },
+                  ]}
+                />
+              </Form.Item>
               <Form.Item name="message" label="弹幕内容">
                 <Input placeholder="留空则随机" />
               </Form.Item>
@@ -207,14 +216,20 @@ const DailyTasksPage: React.FC = () => {
                     <Button loading={loading} icon={<CheckCircleOutlined />} onClick={() => run(() => window.api.daily.validateAudience(slot.slot), '身份有效')}>检查</Button>
                     <Button loading={loading} icon={<WalletOutlined />} onClick={() => refreshWallet(slot.slot)}>查余额</Button>
                     <Button loading={loading} icon={<QrcodeOutlined />} onClick={() => showRechargePanel(slot.slot)}>充值电池</Button>
-                    <Button loading={loading} icon={<VideoCameraOutlined />} onClick={() => run((values) => window.api.daily.enterLiveRoom(slot.slot, values.roomId, values.durationMinutes), '已进入直播间')}>去直播间</Button>
+                    <Button loading={loading} icon={<VideoCameraOutlined />} onClick={() => run((values) => window.api.daily.enterLiveRoom(slot.slot, values.roomId, values.durationMinutes, values.entryMode), '已进入直播间')}>去直播间</Button>
                     <Button loading={loading} icon={<MessageOutlined />} onClick={() => run((values) => window.api.daily.sendDanmaku(slot.slot, values.roomId, values.message), '弹幕已发送')}>发送弹幕*1</Button>
                     <Button loading={loading} icon={<GiftOutlined />} danger onClick={() => run((values) => window.api.daily.sendGift(slot.slot, values.roomId), '礼物请求已发送')}>赠送牛蛙*1</Button>
                   </Space>
                   <Typography.Paragraph style={{ marginTop: 12, marginBottom: slot.liveEntry ? 4 : 0, color: 'var(--bt-text-secondary)', fontSize: 12 }}>
                     钱包余额：{slot.wallet?.goldText || (slot.isValid ? '查询中' : '-')}
                   </Typography.Paragraph>
-                  {slot.liveEntry ? <Typography.Paragraph style={{ marginTop: 12, marginBottom: 0, color: 'var(--bt-text-secondary)', fontSize: 12 }}>已进入 {slot.liveEntry.roomId}，到 {slot.liveEntry.expiresAt}</Typography.Paragraph> : null}
+                  {slot.liveEntry ? (
+                    <Typography.Paragraph style={{ marginTop: 12, marginBottom: 0, color: 'var(--bt-text-secondary)', fontSize: 12 }}>
+                      已进入 {slot.liveEntry.roomId}，到 {slot.liveEntry.expiresAt}
+                      {slot.liveEntry.apiWatch?.mode === 'api-watch' ? ' · API心跳' : ''}
+                      {slot.liveEntry.browser?.mode === 'real-browser' ? ` · 真实浏览器 PID ${slot.liveEntry.browser.pid}` : ''}
+                    </Typography.Paragraph>
+                  ) : null}
                 </Card>
               </Col>
             ))}

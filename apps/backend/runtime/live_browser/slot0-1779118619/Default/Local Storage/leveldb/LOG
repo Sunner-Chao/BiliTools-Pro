@@ -1,0 +1,5 @@
+2026/05/18-23:36:59.406 a1c0 Creating DB /home/sunner/demo_vscode/Bili-Tools/BiliTools-Pro/apps/backend/runtime/live_browser/slot0-1779118619/Default/Local Storage/leveldb since it was missing.
+2026/05/18-23:36:59.438 a1c0 Reusing MANIFEST /home/sunner/demo_vscode/Bili-Tools/BiliTools-Pro/apps/backend/runtime/live_browser/slot0-1779118619/Default/Local Storage/leveldb/MANIFEST-000001
+2026/05/18-23:37:06.122 a1c2 Level-0 table #5: started
+2026/05/18-23:37:06.134 a1c2 Level-0 table #5: 20577 bytes OK
+2026/05/18-23:37:06.139 a1c2 Delete type=0 #3

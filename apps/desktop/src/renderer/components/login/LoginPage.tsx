@@ -45,7 +45,7 @@ const LoginPage: React.FC = () => {
           <div className="bt-login-title">BiliTools Pro</div>
           <div className="bt-login-subtitle">B站游戏资源抢购工具</div>
         </div>
-        <div style={{ padding: '0 32px 32px' }}>
+        <div className="bt-login-body">
           <Tabs items={tabItems} centered />
         </div>
       </div>

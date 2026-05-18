@@ -9,13 +9,13 @@ const StatusBar: React.FC = () => {
 
   return (
     <div className="bt-status-bar">
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      <div className="bt-status-left">
         <span className={`bt-badge ${isAuthenticated ? 'bt-badge-success' : 'bt-badge-idle'}`}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor', display: 'inline-block' }} />
+          <span className="bt-status-dot" />
           {isAuthenticated ? '已登录' : '未登录'}
         </span>
-        <span style={{ color: 'var(--bt-text-secondary)', fontSize: '12px' }}>
-          任务: <span style={{ color: 'var(--bt-text-primary)', fontWeight: 600 }}>{activeTasks}</span>/{tasks.length}
+        <span className="bt-status-task-info">
+          任务: <span className="bt-status-count">{activeTasks}</span>/{tasks.length}
         </span>
         {isStreaming && (
           <span className="bt-badge bt-badge-error">
@@ -24,7 +24,7 @@ const StatusBar: React.FC = () => {
           </span>
         )}
       </div>
-      <span style={{ color: 'var(--bt-text-disabled)', fontSize: '12px' }}>BiliTools-Pro v1.0.0</span>
+      <span className="bt-status-version">BiliTools-Pro v1.0.0</span>
     </div>
   );
 };

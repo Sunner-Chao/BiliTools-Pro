@@ -1,12 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Avatar, Dropdown, Badge, Button, Tooltip, Drawer, List, Tag, Empty } from 'antd';
-import { BellOutlined, UserOutlined, LogoutOutlined, SettingOutlined, BulbOutlined, CloseOutlined } from '@ant-design/icons';
+import { BellOutlined, UserOutlined, LogoutOutlined, SettingOutlined, BulbOutlined, CloseOutlined, MenuOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAppSelector, useAppDispatch } from '../../store/hooks';
 import { logout } from '../../store/slices/authSlice';
 import { setTheme, removeNotification } from '../../store/slices/uiSlice';
 
-const Header: React.FC = () => {
+interface HeaderProps {
+  onMenuClick?: () => void;
+}
+
+const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
   const dispatch = useAppDispatch();
   const navigate = useNavigate();
   const user = useAppSelector((state) => state.auth.user);
@@ -43,38 +47,50 @@ const Header: React.FC = () => {
 
   return (
     <div className="bt-header">
-      <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+      <div className="bt-header-left">
+        {/* Mobile hamburger */}
+        {onMenuClick && (
+          <button
+            className="bt-mobile-menu-btn"
+            onClick={onMenuClick}
+            aria-label="打开导航菜单"
+          >
+            <MenuOutlined />
+          </button>
+        )}
         <Tooltip title={theme === 'dark' ? '切换到白天模式' : '切换到夜间模式'}>
-          <Button
-            type="text"
-            shape="circle"
-            icon={<BulbOutlined />}
+          <button
+            className="bt-header-icon-btn"
             aria-label="切换主题"
             onClick={() => dispatch(setTheme(theme === 'dark' ? 'light' : 'dark'))}
-            style={{ color: 'var(--bt-text-secondary)' }}
-          />
+          >
+            <BulbOutlined />
+          </button>
         </Tooltip>
         <Badge count={notifications.length} size="small">
           <BellOutlined
-            style={{ fontSize: '16px', cursor: 'pointer', color: 'var(--bt-text-secondary)', transition: 'color 200ms' }}
+            className="bt-header-bell"
             onClick={() => setDrawerOpen(true)}
+            role="button"
+            tabIndex={0}
+            aria-label={`通知 (${notifications.length})`}
           />
         </Badge>
-        <Dropdown menu={{ items: userMenuItems }} placement="bottomRight" trigger={['click']}>
-          <div className="bt-header-user">
-            <Avatar
-              size={32}
-              icon={<UserOutlined />}
-              src={user?.avatar ? <img src={user.avatar} alt={user.name} referrerPolicy="no-referrer" style={{ borderRadius: '50%' }} /> : undefined}
-              style={{ background: 'linear-gradient(135deg, var(--bt-primary-active), var(--bt-primary))' }}
-            />
-            <div style={{ lineHeight: 1.3 }}>
-              <div className="bt-header-user-name">{user?.name || '未登录'}</div>
-              {user?.mid && <div className="bt-header-user-meta">UID {user.mid}</div>}
-            </div>
-          </div>
-        </Dropdown>
       </div>
+      <Dropdown menu={{ items: userMenuItems }} placement="bottomRight" trigger={['click']}>
+        <div className="bt-header-user" role="button" tabIndex={0} aria-label="用户菜单">
+          <Avatar
+            size={32}
+            icon={<UserOutlined />}
+            src={user?.avatar ? <img src={user.avatar} alt={user.name} referrerPolicy="no-referrer" style={{ borderRadius: '50%' }} /> : undefined}
+            style={{ background: 'linear-gradient(135deg, var(--bt-primary-active), var(--bt-primary))' }}
+          />
+          <div className="bt-header-user-info">
+            <div className="bt-header-user-name">{user?.name || '未登录'}</div>
+            {user?.mid && <div className="bt-header-user-meta">UID {user.mid}</div>}
+          </div>
+        </div>
+      </Dropdown>
       <Drawer
         title="通知中心"
         placement="right"

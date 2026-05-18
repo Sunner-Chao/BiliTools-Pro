@@ -36,43 +36,48 @@ const AnalyticsPage: React.FC = () => {
           <h1>数据统计</h1>
           <p>更新于 {data.updatedAt || '-'}</p>
         </div>
-        <Button icon={<ReloadOutlined />} onClick={load} style={{ marginLeft: 'auto' }}>刷新</Button>
+        <div className="bt-page-actions">
+          <Button icon={<ReloadOutlined />} onClick={load}>刷新</Button>
+        </div>
       </div>
 
-      <Row gutter={16} style={{ marginBottom: 24 }}>
+      <div className="bt-stat-grid" style={{ marginBottom: 24 }}>
         {statCards.map((s) => (
-          <Col span={6} key={s.title}>
-            <div className="bt-stat-card" style={{ padding: 20, position: 'relative', overflow: 'hidden' }}>
-              <div style={{ position: 'absolute', inset: 0, background: `linear-gradient(135deg, ${s.color}10, transparent)` }} />
-              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 1, background: `linear-gradient(90deg, transparent, ${s.color}50, transparent)` }} />
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, position: 'relative' }}>
-                <span style={{ fontSize: 11, color: 'var(--bt-text-secondary)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.title}</span>
-                <div className="bt-stat-icon" style={{ background: `${s.color}10`, color: s.color }}>{s.icon}</div>
-              </div>
-              <Statistic
-                value={s.value}
-                suffix={s.suffix}
-                valueStyle={{ color: s.color, fontWeight: 700, fontSize: 24 }}
-              />
+          <div className="bt-stat-card" key={s.title} aria-label={`${s.title}: ${s.value}${s.suffix}`}>
+            <div className="bt-stat-card-inner">
+              <span className="bt-stat-card-label">{s.title}</span>
+              <div className="bt-stat-icon" style={{ background: `${s.color}12`, color: s.color }}>{s.icon}</div>
             </div>
-          </Col>
+            <Statistic
+              className="bt-stat-card-value"
+              value={s.value}
+              suffix={s.suffix}
+            />
+          </div>
         ))}
-      </Row>
-      <Row gutter={16} style={{ marginBottom: 24 }}>
+      </div>
+      <div className="bt-stat-grid" style={{ marginBottom: 24 }}>
         {statCards2.map((s) => (
-          <Col span={6} key={s.title}>
-            <Card>
-              <Statistic title={s.title} value={s.value} suffix={s.suffix} prefix={s.icon} valueStyle={s.color ? { color: s.color } : undefined} />
-            </Card>
-          </Col>
+          <div className="bt-stat-card" key={s.title}>
+            <div className="bt-stat-card-inner">
+              <span className="bt-stat-card-label">{s.title}</span>
+              {s.icon && <div className="bt-stat-icon" style={{ background: `${s.color || 'var(--bt-primary)'}12`, color: s.color || 'var(--bt-primary)' }}>{s.icon}</div>}
+            </div>
+            <Statistic
+              className="bt-stat-card-value"
+              value={s.value}
+              suffix={s.suffix}
+              valueStyle={s.color ? { color: s.color } : undefined}
+            />
+          </div>
         ))}
-      </Row>
+      </div>
 
       <Row gutter={16}>
         <Col span={12}>
           <Card title={
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ width: 4, height: 16, borderRadius: 2, background: 'var(--bt-primary)' }} />
+            <div className="bt-section-heading">
+              <div className="bt-section-heading-bar" style={{ background: 'var(--bt-primary)' }} />
               <span>游戏任务统计</span>
             </div>
           }>
@@ -93,8 +98,8 @@ const AnalyticsPage: React.FC = () => {
         </Col>
         <Col span={12}>
           <Card title={
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ width: 4, height: 16, borderRadius: 2, background: 'var(--bt-info)' }} />
+            <div className="bt-section-heading">
+              <div className="bt-section-heading-bar" style={{ background: 'var(--bt-info)' }} />
               <span>最近任务</span>
             </div>
           }>
@@ -117,8 +122,8 @@ const AnalyticsPage: React.FC = () => {
       <Row gutter={16} style={{ marginTop: 16 }}>
         <Col span={12}>
           <Card title={
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ width: 4, height: 16, borderRadius: 2, background: 'var(--bt-success)' }} />
+            <div className="bt-section-heading">
+              <div className="bt-section-heading-bar" style={{ background: 'var(--bt-success)' }} />
               <span>账号与凭证</span>
             </div>
           }>
@@ -134,8 +139,8 @@ const AnalyticsPage: React.FC = () => {
         </Col>
         <Col span={12}>
           <Card title={
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ width: 4, height: 16, borderRadius: 2, background: 'var(--bt-accent)' }} />
+            <div className="bt-section-heading">
+              <div className="bt-section-heading-bar" style={{ background: 'var(--bt-accent)' }} />
               <span>每日任务观众槽位</span>
             </div>
           }>

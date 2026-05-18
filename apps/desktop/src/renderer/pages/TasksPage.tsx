@@ -363,28 +363,20 @@ const TasksPage: React.FC = () => {
           </Card>
           <Card title={activeTask ? `执行日志 - ${activeTask.config?.name || activeTask.id}` : '执行日志'} style={{ marginTop: 16 }}>
             {/* Log window */}
-            <div
-              style={{
-                height: 300,
-                overflowY: 'auto',
-                background: 'color-mix(in srgb, var(--bt-bg-overlay) 55%, transparent)',
-                border: '1px solid var(--bt-glass-border)',
-                borderRadius: 12,
-                padding: '8px 12px',
-                fontFamily: 'monospace',
-                fontSize: 12,
-              }}
-            >
-              {(!((activeTask as any)?.logs?.length)) && (
-                <div style={{ color: 'var(--bt-text-disabled)', textAlign: 'center', padding: 24 }}>暂无日志</div>
+            <div className="bt-log-window" role="log" aria-label="任务执行日志" aria-live="polite">
+              {!((activeTask as any)?.logs?.length) && (
+                <div className="bt-empty-state" role="status">
+                  <Typography.Text style={{ color: 'var(--bt-text-disabled)' }}>暂无日志</Typography.Text>
+                </div>
               )}
               {((activeTask as any)?.logs || []).map((log: any, idx: number) => (
-                <div key={`task-log-${activeTask?.id}-${idx}`} style={{ display: 'flex', gap: 8, padding: '3px 0', borderBottom: '1px solid color-mix(in srgb, var(--bt-glass-border) 50%, transparent)' }}>
-                  <span style={{ color: 'var(--bt-text-disabled)', flexShrink: 0, width: 64 }}>{log.time}</span>
-                  <Tag color={log.level === 'error' ? 'red' : log.level === 'warning' ? 'gold' : log.level === 'success' ? 'green' : 'blue'} style={{ margin: 0, flexShrink: 0, minWidth: 56, textAlign: 'center' }}>{log.level}</Tag>
-                  <span style={{ color: log.level === 'error' ? '#ff4d4f' : log.level === 'warning' ? '#faad14' : 'var(--bt-text-secondary)', whiteSpace: 'pre-wrap' }}>{log.message}</span>
+                <div key={`task-log-${activeTask?.id}-${idx}`} className="bt-log-entry">
+                  <span className="bt-log-time">{log.time}</span>
+                  <Tag color={log.level === 'error' ? 'red' : log.level === 'warning' ? 'gold' : log.level === 'success' ? 'green' : 'blue'} className="bt-log-level">{log.level}</Tag>
+                  <span className="bt-log-message" style={{ color: log.level === 'error' ? 'var(--bt-error)' : log.level === 'warning' ? 'var(--bt-warning)' : 'var(--bt-text-secondary)' }}>{log.message}</span>
                 </div>
               ))}
+              <div />
             </div>
           </Card>
         </Col>

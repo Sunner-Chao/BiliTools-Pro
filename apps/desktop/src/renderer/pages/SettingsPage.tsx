@@ -71,7 +71,9 @@ const SettingsPage: React.FC = () => {
           <h1>设置</h1>
           <p>应用配置与资源管理</p>
         </div>
-        <Button icon={<ReloadOutlined />} onClick={load} style={{ marginLeft: 'auto' }}>刷新真实状态</Button>
+        <div className="bt-page-actions">
+          <Button icon={<ReloadOutlined />} onClick={load}>刷新真实状态</Button>
+        </div>
       </div>
 
       <Form form={form} layout="vertical">
@@ -104,8 +106,8 @@ const SettingsPage: React.FC = () => {
               children: (
                 <Space direction="vertical" style={{ width: '100%' }} size={16}>
                   <Card title={
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div style={{ width: 4, height: 16, borderRadius: 2, background: 'var(--bt-primary)' }} />
+                    <div className="bt-section-heading">
+                      <div className="bt-section-heading-bar" style={{ background: 'var(--bt-primary)' }} />
                       <span>运行目录</span>
                     </div>
                   }>

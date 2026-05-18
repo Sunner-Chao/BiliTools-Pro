@@ -90,20 +90,20 @@ const StreamingPage: React.FC = () => {
 
   const isStreaming = status.isStreaming || streaming.isStreaming;
 
-  const levelColor = (value: string) => value === 'error' ? '#ff4d4f' : value === 'warning' ? '#faad14' : value === 'success' ? '#52c41a' : '#1890ff';
+  const levelColor = (value: string) => value === 'error' ? 'var(--bt-error)' : value === 'warning' ? 'var(--bt-warning)' : value === 'success' ? 'var(--bt-success)' : 'var(--bt-info)';
 
   return (
     <div>
       {/* Page header */}
       <div className="bt-page-header bt-animate-fade-in">
-        <div className="bt-page-header-bar" />
+        <div className="bt-page-header-bar" aria-hidden="true" />
         <div>
           <h1>直播推流</h1>
           <p>定时直播推流 / 仿 OBS 推流</p>
         </div>
-        <div style={{ marginLeft: 'auto' }}>
-          <span className={`bt-badge ${isStreaming ? 'bt-badge-error' : 'bt-badge-idle'}`}>
-            {isStreaming && <span className="bt-pulse" />}
+        <div className="bt-page-actions">
+          <span className={`bt-badge ${isStreaming ? 'bt-badge-error' : 'bt-badge-idle'}`} aria-live="polite">
+            {isStreaming && <span className="bt-pulse" aria-hidden="true" />}
             {status.status || 'idle'}
           </span>
         </div>
@@ -139,7 +139,7 @@ const StreamingPage: React.FC = () => {
               <Form.Item name="videoPath" label="视频文件路径">
                 <Input
                   placeholder="/path/to/video.mp4"
-                  suffix={videoLoading ? <LoadingOutlined style={{ color: '#1890ff' }} /> : form.getFieldValue('videoPath') ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> : null}
+                  suffix={videoLoading ? <LoadingOutlined style={{ color: 'var(--bt-info)' }} /> : form.getFieldValue('videoPath') ? <CheckCircleOutlined style={{ color: 'var(--bt-success)' }} /> : null}
                   addonAfter={<Button type="text" size="small" icon={<FolderOpenOutlined />} onClick={handleSelectVideo} loading={videoLoading} style={{ margin: '-4px -8px' }}>浏览</Button>}
                   onChange={saveFormValues}
                 />
@@ -190,46 +190,44 @@ const StreamingPage: React.FC = () => {
             extra={<Space><Tag color={isStreaming ? 'red' : 'default'}>{status.status || 'idle'}</Tag><Button icon={<ReloadOutlined />} onClick={loadStatus}>刷新</Button></Space>}
           >
             <Space direction="vertical" style={{ width: '100%' }} size={12}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--bt-glass-border)' }}>
-                <span style={{ color: 'var(--bt-text-secondary)', fontSize: 13 }}>房间号</span>
-                <span style={{ color: 'var(--bt-text-primary)', fontWeight: 500 }}>{status.roomId || '-'}</span>
+              <div className="bt-stream-status-row" role="listitem">
+                <span className="bt-stream-status-label">房间号</span>
+                <span className="bt-stream-status-value">{status.roomId || '-'}</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--bt-glass-border)' }}>
-                <span style={{ color: 'var(--bt-text-secondary)', fontSize: 13 }}>模式</span>
-                <span style={{ color: 'var(--bt-text-primary)', fontWeight: 500 }}>{status.mode || '-'}</span>
+              <div className="bt-stream-status-row" role="listitem">
+                <span className="bt-stream-status-label">模式</span>
+                <span className="bt-stream-status-value">{status.mode || '-'}</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--bt-glass-border)' }}>
-                <span style={{ color: 'var(--bt-text-secondary)', fontSize: 13 }}>时长</span>
-                <span style={{ color: 'var(--bt-text-primary)', fontWeight: 500 }}>{status.duration || 0}s</span>
+              <div className="bt-stream-status-row" role="listitem">
+                <span className="bt-stream-status-label">时长</span>
+                <span className="bt-stream-status-value">{status.duration || 0}s</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0' }}>
-                <span style={{ color: 'var(--bt-text-secondary)', fontSize: 13 }}>RTMP</span>
-                <span style={{ color: 'var(--bt-text-primary)', fontWeight: 500, fontSize: 12 }}>{status.rtmpUrl || '-'}</span>
+              <div className="bt-stream-status-row" role="listitem">
+                <span className="bt-stream-status-label">RTMP</span>
+                <span className="bt-stream-status-value" style={{ fontSize: 12 }}>{status.rtmpUrl || '-'}</span>
               </div>
               <Divider style={{ margin: '4px 0' }} />
               {/* Log window */}
-              <div
-                style={{
-                  height: 340,
-                  overflowY: 'auto',
-                  background: 'color-mix(in srgb, var(--bt-bg-overlay) 55%, transparent)',
-                  border: '1px solid var(--bt-glass-border)',
-                  borderRadius: 12,
-                  padding: '8px 12px',
-                  fontFamily: 'monospace',
-                  fontSize: 12,
-                }}
-              >
-                {(status.logs || []).length === 0 && (
-                  <div style={{ color: 'var(--bt-text-disabled)', textAlign: 'center', padding: 24 }}>暂无日志</div>
-                )}
-                {(status.logs || []).map((log: any, idx: number) => (
-                  <div key={`stream-log-${idx}`} style={{ display: 'flex', gap: 8, padding: '3px 0', borderBottom: '1px solid color-mix(in srgb, var(--bt-glass-border) 50%, transparent)' }}>
-                    <span style={{ color: 'var(--bt-text-disabled)', flexShrink: 0, width: 64 }}>{log.time}</span>
-                    <Tag color={log.level === 'error' ? 'red' : log.level === 'warning' ? 'gold' : log.level === 'success' ? 'green' : 'blue'} style={{ margin: 0, flexShrink: 0, minWidth: 56, textAlign: 'center' }}>{log.level}</Tag>
-                    <span style={{ color: log.level === 'error' ? '#ff4d4f' : log.level === 'warning' ? '#faad14' : 'var(--bt-text-secondary)', whiteSpace: 'pre-wrap' }}>{log.message}</span>
+              <div className="bt-log-window" role="log" aria-label="推流日志" aria-live="polite">
+                {(status.logs || []).length === 0 ? (
+                  <div className="bt-empty-state" role="status">
+                    <ReloadOutlined className="bt-empty-state-icon" aria-hidden="true" />
+                    <p className="bt-empty-state-text">暂无日志</p>
                   </div>
-                ))}
+                ) : (
+                  (status.logs || []).map((log: any, idx: number) => (
+                    <div key={`stream-log-${idx}`} className="bt-log-entry">
+                      <span className="bt-log-time">{log.time}</span>
+                      <Tag color={log.level === 'error' ? 'red' : log.level === 'warning' ? 'gold' : log.level === 'success' ? 'green' : 'blue'} className="bt-log-level">{log.level}</Tag>
+                      <span
+                        className="bt-log-message"
+                        style={{ color: log.level === 'error' ? 'var(--bt-error)' : log.level === 'warning' ? 'var(--bt-warning)' : 'var(--bt-text-secondary)' }}
+                      >
+                        {log.message}
+                      </span>
+                    </div>
+                  ))
+                )}
                 <div ref={logEndRef} />
               </div>
             </Space>

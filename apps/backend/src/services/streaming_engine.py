@@ -34,6 +34,9 @@ class StreamingEngine:
         self._pump_task: asyncio.Task[None] | None = None
         self._auto_stop_task: asyncio.Task[None] | None = None
         self._scheduled_start_task: asyncio.Task[None] | None = None
+        self._ffmpeg_tail: list[str] = []
+        self._ffmpeg_config: dict[str, Any] | None = None
+        self._ffmpeg_restarts = 0
 
     def _log(self, level: str, message: str) -> None:
         self.state.setdefault("logs", []).append(
@@ -138,6 +141,8 @@ class StreamingEngine:
             await self._stop_bilibili_live(str(self.state["roomId"]))
         self.state["isStreaming"] = False
         self.state["status"] = "idle"
+        self._ffmpeg_config = None
+        self._ffmpeg_restarts = 0
         self._log("warning", "推流已停止")
         return {"success": True, "state": self.status()}
 
@@ -149,7 +154,12 @@ class StreamingEngine:
             while self.state["isStreaming"]:
                 self.state["duration"] += 1
                 if self._process and self._process.poll() is not None:
-                    self._log("error", "ffmpeg 进程已退出")
+                    returncode = self._process.returncode
+                    self._log("error", f"ffmpeg 进程已退出，退出码 {returncode}")
+                    if self._ffmpeg_tail:
+                        self._log("error", "ffmpeg 退出前日志: " + " | ".join(self._ffmpeg_tail[-6:]))
+                    if await self._restart_ffmpeg_if_possible():
+                        continue
                     self.state["status"] = "ended"
                     self.state["isStreaming"] = False
                     break
@@ -281,6 +291,8 @@ class StreamingEngine:
         path = Path(video_path)
         if not path.exists():
             raise FileNotFoundError(f"视频文件不存在: {video_path}")
+        if not rtmp_url:
+            raise ValueError("缺少 RTMP 服务器地址")
         ffmpeg_path = self._resolve_ffmpeg_path(config.get("ffmpegPath"))
         target = f"{rtmp_url.rstrip('/')}/{stream_key}" if stream_key else rtmp_url
         quality = config.get("quality", "low")
@@ -289,9 +301,11 @@ class StreamingEngine:
         is_cpu = config.get("cpuMode", True)
         vcodec = "libx264" if is_cpu else self._detect_gpu()
         self._log("info", f"使用编码器: {vcodec}")
+        self._ffmpeg_config = {"video_path": video_path, "rtmp_url": rtmp_url, "stream_key": stream_key, "config": config}
+        self._ffmpeg_tail = []
 
         # Build encoder-specific params matching legacy bili_ffmpeg.py
-        command = [ffmpeg_path, "-re", "-stream_loop", "-1", "-i", str(path)]
+        command = [ffmpeg_path, "-hide_banner", "-re", "-stream_loop", "-1", "-fflags", "+genpts", "-i", str(path)]
 
         if vcodec == "h264_nvenc":
             if quality == "high":
@@ -325,11 +339,22 @@ class StreamingEngine:
 
         command += [
             "-b:v", bitrate,
+            "-maxrate", bitrate,
+            "-bufsize", str(int(bitrate.rstrip("k")) * 2) + "k",
+            "-r", "30",
+            "-g", "60",
+            "-keyint_min", "60",
+            "-pix_fmt", "yuv420p",
+            "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
             "-c:a", "aac",
             "-b:a", audio_bitrate,
+            "-ar", "44100",
+            "-ac", "2",
+            "-flvflags", "no_duration_filesize",
             "-f", "flv",
             target,
         ]
+        self._log("debug", "ffmpeg 命令: " + self._mask_command(command))
         self._log("info", "启动仿 OBS ffmpeg 推流")
         self._process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self._pump_task = asyncio.create_task(self._pump_ffmpeg())
@@ -349,9 +374,45 @@ class StreamingEngine:
             while self._process.poll() is None:
                 line = await asyncio.to_thread(self._process.stderr.readline)
                 if line:
-                    self._log("debug", line.decode(errors="ignore").strip())
+                    text = line.decode(errors="ignore").strip()
+                    if not text:
+                        continue
+                    self._ffmpeg_tail.append(text)
+                    self._ffmpeg_tail = self._ffmpeg_tail[-20:]
+                    self._log("debug", text)
         except asyncio.CancelledError:
             pass
+
+    async def _restart_ffmpeg_if_possible(self) -> bool:
+        if not self._ffmpeg_config or not self.state.get("isStreaming"):
+            return False
+        max_restarts = int(self._ffmpeg_config["config"].get("maxRestarts") or 5)
+        if self._ffmpeg_restarts >= max_restarts:
+            self._log("error", f"ffmpeg 自动重启次数已达上限 {max_restarts}")
+            return False
+        self._ffmpeg_restarts += 1
+        self.state["status"] = "restarting"
+        self._log("warning", f"ffmpeg 异常退出，3 秒后自动重启 ({self._ffmpeg_restarts}/{max_restarts})")
+        await asyncio.sleep(3)
+        try:
+            saved = self._ffmpeg_config
+            self._start_ffmpeg(saved["video_path"], saved["rtmp_url"], saved["stream_key"], saved["config"])
+            self.state["status"] = "streaming"
+            return True
+        except Exception as exc:
+            self._log("error", f"ffmpeg 自动重启失败: {exc}")
+            return False
+
+    @staticmethod
+    def _mask_command(command: list[str]) -> str:
+        if not command:
+            return ""
+        masked = command[:]
+        if masked[-1].startswith("rtmp"):
+            target = masked[-1]
+            prefix, _, key = target.rpartition("/")
+            masked[-1] = f"{prefix}/{key[:6]}***" if key else target
+        return " ".join(f'"{part}"' if " " in part else part for part in masked)
 
 
 streaming_engine = StreamingEngine()

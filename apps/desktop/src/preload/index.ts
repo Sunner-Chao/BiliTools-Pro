@@ -9,6 +9,7 @@ const api = {
   system: {
     getPlatform: () => ipcRenderer.invoke('system:getPlatform'),
     getVersion: () => ipcRenderer.invoke('system:getVersion'),
+    openExternal: (url: string) => ipcRenderer.invoke('system:openExternal', url),
     selectVideoFile: () => ipcRenderer.invoke('system:selectVideoFile'),
   },
   auth: {
@@ -30,6 +31,7 @@ const api = {
     refreshGameConfig: (game: string, url?: string) => ipcRenderer.invoke('tasks:refreshGameConfig', game, url),
     resources: () => ipcRenderer.invoke('tasks:resources'),
     overview: (game: string, sourceUrl?: string) => ipcRenderer.invoke('tasks:overview', game, sourceUrl),
+    stocks: (game: string, taskIds?: string[]) => ipcRenderer.invoke('tasks:stocks', game, taskIds),
   },
   streaming: {
     start: (config: unknown) => ipcRenderer.invoke('streaming:start', config),
@@ -42,6 +44,8 @@ const api = {
     checkAudienceQRStatus: (qrKey: string) => ipcRenderer.invoke('daily:checkAudienceQRStatus', qrKey),
     saveAudienceCookie: (slot: number, cookie: string) => ipcRenderer.invoke('daily:saveAudienceCookie', slot, cookie),
     validateAudience: (slot: number) => ipcRenderer.invoke('daily:validateAudience', slot),
+    wallet: (slot: number) => ipcRenderer.invoke('daily:wallet', slot),
+    rechargeQR: (slot?: number) => ipcRenderer.invoke('daily:rechargeQR', slot),
     enterLiveRoom: (slot: number, roomId: string, durationMinutes?: number) => ipcRenderer.invoke('daily:enterLiveRoom', slot, roomId, durationMinutes),
     sendDanmaku: (slot: number, roomId: string, message?: string) => ipcRenderer.invoke('daily:sendDanmaku', slot, roomId, message),
     sendGift: (slot: number, roomId: string) => ipcRenderer.invoke('daily:sendGift', slot, roomId),

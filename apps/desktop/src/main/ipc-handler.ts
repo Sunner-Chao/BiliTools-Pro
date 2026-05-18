@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, dialog } from 'electron';
+import { ipcMain, BrowserWindow, dialog, shell } from 'electron';
 import * as net from 'net';
 import { config } from '../config';
 
@@ -162,6 +162,7 @@ export function setupIpcHandlers(): void {
   // System info
   ipcMain.handle('system:getPlatform', () => process.platform);
   ipcMain.handle('system:getVersion', () => '1.0.0');
+  ipcMain.handle('system:openExternal', (_, url: string) => shell.openExternal(url));
   ipcMain.handle('system:selectVideoFile', async () => {
     const win = BrowserWindow.getFocusedWindow() || undefined;
     const result = await dialog.showOpenDialog(win, {
@@ -194,6 +195,7 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('tasks:refreshGameConfig', (_, game: string, url?: string) => sendRequest('tasks:refreshGameConfig', { game, url }));
   ipcMain.handle('tasks:resources', () => sendRequest('tasks:resources'));
   ipcMain.handle('tasks:overview', (_, game: string, sourceUrl?: string) => sendRequest('tasks:overview', { game, sourceUrl }));
+  ipcMain.handle('tasks:stocks', (_, game: string, taskIds?: string[]) => sendRequest('tasks:stocks', { game, taskIds }));
 
   // Streaming handlers
   ipcMain.handle('streaming:start', (_, config) => sendRequest('streaming:start', { config }));
@@ -206,6 +208,8 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('daily:checkAudienceQRStatus', (_, qrKey: string) => sendRequest('daily:checkAudienceQRStatus', { qrKey }));
   ipcMain.handle('daily:saveAudienceCookie', (_, slot: number, cookie: string) => sendRequest('daily:saveAudienceCookie', { slot, cookie }));
   ipcMain.handle('daily:validateAudience', (_, slot: number) => sendRequest('daily:validateAudience', { slot }));
+  ipcMain.handle('daily:wallet', (_, slot: number) => sendRequest('daily:wallet', { slot }));
+  ipcMain.handle('daily:rechargeQR', (_, slot?: number) => sendRequest('daily:rechargeQR', { slot }));
   ipcMain.handle('daily:enterLiveRoom', (_, slot: number, roomId: string, durationMinutes?: number) => sendRequest('daily:enterLiveRoom', { slot, roomId, durationMinutes }));
   ipcMain.handle('daily:sendDanmaku', (_, slot: number, roomId: string, message?: string) => sendRequest('daily:sendDanmaku', { slot, roomId, message }));
   ipcMain.handle('daily:sendGift', (_, slot: number, roomId: string) => sendRequest('daily:sendGift', { slot, roomId }));

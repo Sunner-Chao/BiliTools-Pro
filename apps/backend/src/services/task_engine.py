@@ -1,6 +1,7 @@
 """Scheduled Bilibili award task engine with visible logs."""
 import asyncio
 import hashlib
+import os
 import time
 import uuid
 from datetime import datetime
@@ -96,6 +97,49 @@ class TaskEngine:
     def get(self, task_id: str) -> dict[str, Any] | None:
         return self._tasks.get(task_id)
 
+    async def query_stocks(
+        self,
+        game: str,
+        task_ids: Any = None,
+        web_location: Any = None,
+    ) -> dict[str, Any]:
+        """Query current stock for game resource tasks."""
+        tasks = game_config_service.list_tasks(game)
+        if task_ids:
+            wanted = {str(task_id) for task_id in task_ids if task_id}
+            tasks = [item for item in tasks if str(item.get("id")) in wanted]
+        if not tasks:
+            return {"success": False, "error": "未找到可查询的资源任务", "tasks": []}
+
+        game_config = game_config_service.get_config(game)
+        resolved_web_location = (
+            web_location
+            or os.getenv("BILITOOLS_TASK_WEB_LOCATION")
+            or game_config.get("task_web_location")
+            or game_config.get("web_location")
+            or 888.81821
+        )
+        query_interval = self._to_float(
+            os.getenv("BILITOOLS_STOCK_QUERY_INTERVAL")
+            or game_config.get("stock_query_interval")
+            or 1.0,
+            1.0,
+        )
+        config = {"webLocation": resolved_web_location}
+        results = []
+        for index, item in enumerate(tasks):
+            if index > 0 and query_interval > 0:
+                await asyncio.sleep(query_interval)
+            enriched = await self._enrich_task_item(item, config, force=True)
+            results.append({**enriched, "stockFetchedAt": datetime.now().isoformat(timespec="seconds")})
+
+        return {
+            "success": True,
+            "game": game,
+            "webLocation": resolved_web_location,
+            "tasks": results,
+        }
+
     async def _run(self, task_id: str) -> None:
         task = self._tasks[task_id]
         config = task["config"]
@@ -169,6 +213,13 @@ class TaskEngine:
         except ValueError:
             return 0
 
+    @staticmethod
+    def _to_float(value: Any, fallback: float) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return fallback
+
     @classmethod
     def _is_future_target(cls, target_time: Any) -> bool:
         return cls._seconds_until(target_time) > 0
@@ -238,20 +289,20 @@ class TaskEngine:
             "awardName": item.get("awardName") or item.get("award_name"),
         }
 
-    async def _enrich_task_item(self, item: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+    async def _enrich_task_item(self, item: dict[str, Any], config: dict[str, Any], force: bool = False) -> dict[str, Any]:
         """Query mission/info to fill activity_id, activity_name, award_name and stock."""
-        if item.get("activityId") and item.get("awardName"):
+        if not force and item.get("activityId") and item.get("awardName"):
             return item
         task_id = item.get("id")
         if not task_id:
             return item
         web_location = config.get("webLocation") or 888.81821
         wts, w_rid = self._generate_wbi_signature(task_id=task_id, web_location=web_location)
-        params = {"task_id": task_id, "web_location": web_location, "w_rid": w_rid, "wts": wts}
+        params = {"task_id": task_id, "web_location": web_location, "w_rid": w_rid, "wts": str(wts)}
         headers = {
             "Cookie": bilibili_service.cookie_string,
             "User-Agent": bilibili_service.user_agent,
-            "Referer": f"https://www.bilibili.com/blackboard/era/award-exchange.html?task_id={task_id}",
+            "Referer": f"https://www.bilibili.com/blackboard/new-award-exchange.html?task_id={task_id}",
         }
         try:
             async with create_client(timeout=10.0) as client:
@@ -261,7 +312,7 @@ class TaskEngine:
                     headers=headers,
                 )).json()
             if data.get("code") != 0:
-                return {**item, "queryCode": data.get("code"), "queryMessage": data.get("message") or data.get("msg")}
+                return {**item, "queryCode": data.get("code"), "queryMessage": data.get("message") or data.get("msg"), "rawResponse": data}
             task_data = data.get("data", {})
             reward_info = task_data.get("reward_info", {}) or {}
             stock_info = task_data.get("stock_info", {}) or {}
@@ -273,9 +324,10 @@ class TaskEngine:
                 "awardName": reward_info.get("award_name") or item.get("awardName"),
                 "dayStock": stock_info.get("day_stock"),
                 "totalStock": stock_info.get("total_stock"),
-                "taskStatus": task_data.get("status"),
+                "taskStatus": task_data.get("status") or task_data.get("task_status"),
                 "wts": wts,
                 "wRid": w_rid,
+                "rawResponse": data,
             }
         except Exception as exc:
             return {**item, "queryError": str(exc)}

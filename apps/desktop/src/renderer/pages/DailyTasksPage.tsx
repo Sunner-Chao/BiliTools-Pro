@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Button, Card, Col, Form, Input, InputNumber, message, Modal, Row, Space, Table, Tag, Typography } from 'antd';
-import { CheckCircleOutlined, GiftOutlined, LoginOutlined, MessageOutlined, ReloadOutlined, VideoCameraOutlined } from '@ant-design/icons';
+import { CheckCircleOutlined, GiftOutlined, LoginOutlined, MessageOutlined, QrcodeOutlined, ReloadOutlined, VideoCameraOutlined, WalletOutlined } from '@ant-design/icons';
 import { useAppSelector } from '../store/hooks';
 
 const DailyTasksPage: React.FC = () => {
@@ -11,6 +11,7 @@ const DailyTasksPage: React.FC = () => {
   const [activeSlot, setActiveSlot] = useState<number | null>(null);
   const [qrInfo, setQrInfo] = useState<any>(null);
   const [qrMessage, setQrMessage] = useState('');
+  const [rechargeInfo, setRechargeInfo] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
   const loadStatus = async () => {
@@ -78,6 +79,24 @@ const DailyTasksPage: React.FC = () => {
     } finally { setLoading(false); }
   };
 
+  const refreshWallet = async (slot: number) => {
+    setLoading(true);
+    try {
+      const result = await window.api.daily.wallet(slot);
+      result?.success ? message.success(`钱包余额 ${result.wallet?.goldText || '-'}`) : message.warning(result?.wallet?.error || '余额查询失败');
+      await loadStatus();
+    } finally { setLoading(false); }
+  };
+
+  const showRechargeQR = async (slot: number) => {
+    setLoading(true);
+    try {
+      const result = await window.api.daily.rechargeQR(slot);
+      if (result?.success) { setRechargeInfo({ ...result, slot }); }
+      else { message.warning(result?.error || '充值二维码生成失败'); }
+    } finally { setLoading(false); }
+  };
+
   const logColumns = [
     { title: '时间', dataIndex: 'time', key: 'time', width: 90 },
     { title: '级别', dataIndex: 'level', key: 'level', width: 90, render: (value: string) => <Tag color={value === 'error' ? 'red' : value === 'success' ? 'green' : 'blue'}>{value}</Tag> },
@@ -123,10 +142,15 @@ const DailyTasksPage: React.FC = () => {
                   <Space wrap>
                     <Button icon={<LoginOutlined />} onClick={() => { setActiveSlot(slot.slot); setQrInfo(null); setQrMessage(''); generateQR(slot.slot); }}>扫码验证</Button>
                     <Button loading={loading} icon={<CheckCircleOutlined />} onClick={() => run(() => window.api.daily.validateAudience(slot.slot), '身份有效')}>检查</Button>
+                    <Button loading={loading} icon={<WalletOutlined />} onClick={() => refreshWallet(slot.slot)}>查余额</Button>
+                    <Button loading={loading} icon={<QrcodeOutlined />} onClick={() => showRechargeQR(slot.slot)}>充值电池</Button>
                     <Button loading={loading} icon={<VideoCameraOutlined />} onClick={() => run((values) => window.api.daily.enterLiveRoom(slot.slot, values.roomId, values.durationMinutes), '已进入直播间')}>去直播间</Button>
                     <Button loading={loading} icon={<MessageOutlined />} onClick={() => run((values) => window.api.daily.sendDanmaku(slot.slot, values.roomId, values.message), '弹幕已发送')}>发送弹幕*1</Button>
                     <Button loading={loading} icon={<GiftOutlined />} danger onClick={() => run((values) => window.api.daily.sendGift(slot.slot, values.roomId), '礼物请求已发送')}>赠送牛蛙*1</Button>
                   </Space>
+                  <Typography.Paragraph style={{ marginTop: 12, marginBottom: slot.liveEntry ? 4 : 0, color: 'var(--bt-text-secondary)', fontSize: 12 }}>
+                    钱包余额：{slot.wallet?.goldText || (slot.isValid ? '查询中' : '-')}
+                  </Typography.Paragraph>
                   {slot.liveEntry ? <Typography.Paragraph style={{ marginTop: 12, marginBottom: 0, color: 'var(--bt-text-secondary)', fontSize: 12 }}>已进入 {slot.liveEntry.roomId}，到 {slot.liveEntry.expiresAt}</Typography.Paragraph> : null}
                 </Card>
               </Col>
@@ -161,6 +185,25 @@ const DailyTasksPage: React.FC = () => {
           </Form.Item>
           <Button block onClick={saveCookie} loading={loading}>保存手动 Cookie</Button>
         </Form>
+      </Modal>
+
+      <Modal
+        title={rechargeInfo?.slot === undefined ? '充值电池' : `观众 ${rechargeInfo.slot} 充值电池`}
+        open={Boolean(rechargeInfo)}
+        onCancel={() => setRechargeInfo(null)}
+        footer={[
+          <Button key="open" type="primary" onClick={() => rechargeInfo?.url && window.api.system.openExternal(rechargeInfo.url)}>打开直播间</Button>,
+          <Button key="close" onClick={() => setRechargeInfo(null)}>关闭</Button>,
+        ]}
+      >
+        <Space direction="vertical" style={{ width: '100%', alignItems: 'center' }}>
+          {rechargeInfo?.qrUrl ? <img src={rechargeInfo.qrUrl} alt="充值电池二维码" style={{ width: 220, height: 220, borderRadius: 12 }} /> : null}
+          <Typography.Text style={{ color: 'var(--bt-text-secondary)' }}>打开直播间后点击右下方“0 充值”</Typography.Text>
+          <Typography.Text copyable style={{ color: 'var(--bt-text-secondary)', fontSize: 12 }}>{rechargeInfo?.url || ''}</Typography.Text>
+          {rechargeInfo?.componentUrl ? (
+            <Typography.Text copyable style={{ color: 'var(--bt-text-disabled)', fontSize: 12 }}>组件入口：{rechargeInfo.componentUrl}</Typography.Text>
+          ) : null}
+        </Space>
       </Modal>
     </div>
   );

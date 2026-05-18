@@ -21,6 +21,13 @@ interface ResourceTask {
   activityId?: string;
   taskName?: string;
   url?: string;
+  dayStock?: number | string;
+  totalStock?: number | string;
+  taskStatus?: string | number;
+  stockFetchedAt?: string;
+  queryCode?: number;
+  queryMessage?: string;
+  queryError?: string;
 }
 
 const TasksPage: React.FC = () => {
@@ -35,6 +42,7 @@ const TasksPage: React.FC = () => {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [stockLoading, setStockLoading] = useState(false);
 
   const activeTask = useMemo(() => tasks.find((task) => task.id === activeTaskId) || tasks[0], [tasks, activeTaskId]);
 
@@ -113,6 +121,29 @@ const TasksPage: React.FC = () => {
       await loadOverview(game, result.sourceUrl || sourceUrl);
     } else {
       message.error(result.error || '刷新失败');
+    }
+  };
+
+  const handleQueryStocks = async (selectedOnly = false) => {
+    const game = form.getFieldValue('game');
+    if (!game) { message.error('请先选择游戏'); return; }
+    const taskIds = selectedOnly ? selectedIds : resources.map((item) => item.id);
+    if (taskIds.length === 0) { message.error(selectedOnly ? '请先选择资源道具' : '当前游戏没有可查询资源'); return; }
+    setStockLoading(true);
+    try {
+      const result = await window.api.tasks.stocks(game, taskIds);
+      if (result?.success) {
+        const stockMap = new Map<string, ResourceTask>((result.tasks || []).map((item: ResourceTask) => [item.id, item]));
+        setResources((items) => items.map((item) => ({ ...item, ...(stockMap.get(item.id) || {}) })));
+        const failed = (result.tasks || []).filter((item: ResourceTask) => item.queryError || item.queryMessage).length;
+        message.success(failed ? `库存已更新，${failed} 个资源查询异常` : `库存已更新，共 ${result.tasks?.length || 0} 个资源`);
+      } else {
+        message.error(result?.error || '库存查询失败');
+      }
+    } catch {
+      message.error('库存查询失败');
+    } finally {
+      setStockLoading(false);
     }
   };
 
@@ -212,6 +243,11 @@ const TasksPage: React.FC = () => {
       : `${minutes}:${String(secs).padStart(2, '0')}`;
   };
 
+  const formatStock = (value: ResourceTask['dayStock']) => {
+    if (value === undefined || value === null || value === '') return '-';
+    return `${value}%`;
+  };
+
   return (
     <div>
       {/* Page header */}
@@ -251,7 +287,14 @@ const TasksPage: React.FC = () => {
                   <Col span={8}><div className="bt-stat-card" style={{ padding: 12 }}><Statistic title="投稿稿件总数" value={overview.submitCount ?? '-'} /></div></Col>
                 </Row>
               ) : null}
-              <Form.Item label="资源道具">
+              <Form.Item
+                label="资源道具"
+                extra={resources.some((item) => item.stockFetchedAt) ? `最近库存更新时间：${resources.find((item) => item.stockFetchedAt)?.stockFetchedAt}` : undefined}
+              >
+                <Space style={{ marginBottom: 8 }} wrap>
+                  <Button size="small" icon={<ReloadOutlined />} loading={stockLoading} onClick={() => handleQueryStocks(false)}>查询库存</Button>
+                  <Button size="small" loading={stockLoading} disabled={!selectedIds.length} onClick={() => handleQueryStocks(true)}>查询选中库存</Button>
+                </Space>
                 <div style={{ maxHeight: 240, overflow: 'auto', border: '1px solid var(--bt-glass-border)', borderRadius: 12, padding: 12, background: 'color-mix(in srgb, var(--bt-bg-overlay) 55%, transparent)' }}>
                   <Checkbox.Group value={selectedIds} onChange={(ids) => { setSelectedIds(ids as string[]); saveFormValues(); }}>
                     <Space direction="vertical">
@@ -260,6 +303,14 @@ const TasksPage: React.FC = () => {
                           <Space size={6} wrap>
                             <span style={{ color: 'var(--bt-text-primary)' }}>{item.name}</span>
                             {item.awardName ? <Tag color="green">{item.awardName}</Tag> : null}
+                            {item.dayStock !== undefined || item.totalStock !== undefined ? (
+                              <>
+                                <Tag color="blue">每日 {formatStock(item.dayStock)}</Tag>
+                                <Tag color="purple">总量 {formatStock(item.totalStock)}</Tag>
+                              </>
+                            ) : null}
+                            {item.taskStatus !== undefined ? <Tag color="gold">状态 {item.taskStatus}</Tag> : null}
+                            {item.queryError || item.queryMessage ? <Tag color="red">{item.queryMessage || item.queryError}</Tag> : null}
                             <Tag>{item.id}</Tag>
                           </Space>
                         </Checkbox>

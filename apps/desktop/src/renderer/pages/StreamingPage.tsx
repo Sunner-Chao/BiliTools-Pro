@@ -136,13 +136,12 @@ const StreamingPage: React.FC = () => {
               <Form.Item name="streamKey" label="推流密钥">
                 <Input.Password placeholder="仿 OBS 模式填写" onChange={saveFormValues} />
               </Form.Item>
-              <Form.Item label="视频文件路径">
+              <Form.Item name="videoPath" label="视频文件路径">
                 <Input
-                  value={form.getFieldValue('videoPath') || ''}
-                  onChange={(e) => { form.setFieldValue('videoPath', e.target.value); saveFormValues(); }}
                   placeholder="/path/to/video.mp4"
                   suffix={videoLoading ? <LoadingOutlined style={{ color: '#1890ff' }} /> : form.getFieldValue('videoPath') ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> : null}
                   addonAfter={<Button type="text" size="small" icon={<FolderOpenOutlined />} onClick={handleSelectVideo} loading={videoLoading} style={{ margin: '-4px -8px' }}>浏览</Button>}
+                  onChange={saveFormValues}
                 />
               </Form.Item>
               <Form.Item name="ffmpegPath" label="ffmpeg路径">

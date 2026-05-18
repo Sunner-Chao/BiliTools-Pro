@@ -11,8 +11,8 @@ datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
-    ['packaging/backend_launcher.py'],
-    pathex=['/home/sunner/demo_vscode/Bili-Tools/BiliTools-Pro/apps/backend'],
+    ['packaging\\backend_launcher.py'],
+    pathex=['D:\\pro_sunner\\demo_vscode\\Bili-Tools\\BiliTools-Pro\\apps\\backend'],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,

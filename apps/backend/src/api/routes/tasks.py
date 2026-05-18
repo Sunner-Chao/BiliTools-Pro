@@ -50,6 +50,13 @@ async def register(ipc: IPCServer) -> None:
     async def get_overview(game: str, source_url: str | None = None) -> Dict[str, Any]:
         return await activity_info_service.fetch_overview(game, source_url)
 
+    async def query_stocks(
+        game: str,
+        task_ids: list[str] | None = None,
+        web_location: Any = None,
+    ) -> Dict[str, Any]:
+        return await task_engine.query_stocks(game, task_ids, web_location)
+
     ipc.register_handler("tasks:create", create_task)
     ipc.register_handler("tasks:start", start_task)
     ipc.register_handler("tasks:stop", stop_task)
@@ -61,3 +68,4 @@ async def register(ipc: IPCServer) -> None:
     ipc.register_handler("tasks:refreshGameConfig", refresh_game_config)
     ipc.register_handler("tasks:resources", list_resources)
     ipc.register_handler("tasks:overview", get_overview)
+    ipc.register_handler("tasks:stocks", query_stocks)

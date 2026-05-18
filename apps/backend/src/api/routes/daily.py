@@ -1,11 +1,14 @@
 """Daily live task routes migrated from the original Tk daily-task popup."""
 import base64
 import io
+import os
 import random
+import re
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 from src.services.http_client import create_client
@@ -18,6 +21,11 @@ from src.services.game_config import PRO_ROOT
 
 SLOT_COUNT = 4
 LIVE_DANMAKU = ["打卡", "路过支持一下", "(⌒▽⌒).", "（￣▽￣）.", "(=・ω・=).", "(｀・ω・´).", "(･∀･).", "(°∀°)ﾉ."]
+BATTERY_RECHARGE_SOURCE_URL = os.getenv(
+    "BILITOOLS_BATTERY_RECHARGE_SOURCE_URL",
+    "https://live.bilibili.com/25528268/?live_from=86001&spm_id_from=333.1387.0.0",
+)
+BATTERY_RECHARGE_FALLBACK_URL = os.getenv("BILITOOLS_BATTERY_RECHARGE_URL", "https://pay.bilibili.com/bb_balance.html")
 
 
 class DailyTaskState:
@@ -25,6 +33,8 @@ class DailyTaskState:
         self.logs: list[dict[str, Any]] = []
         self.live_entries: dict[int, dict[str, Any]] = {}
         self.qr_sessions: dict[str, dict[str, Any]] = {}
+        self.wallet_cache: dict[int, dict[str, Any]] = {}
+        self.recharge_cache: dict[str, Any] = {}
 
     def log(self, level: str, message: str) -> None:
         self.logs.append({"time": datetime.now().strftime("%H:%M:%S"), "level": level, "message": message})
@@ -54,12 +64,14 @@ async def register(ipc: IPCServer) -> None:
         for slot in range(SLOT_COUNT):
             cookie = daily_state.read_cookie(slot)
             user = await _fetch_user(cookie) if cookie else None
+            wallet = await _wallet_cached(slot, cookie) if user else None
             slots.append({
                 "slot": slot,
                 "hasCookie": bool(cookie),
                 "isValid": bool(user),
                 "name": user.get("name") if user else "",
                 "mid": user.get("mid") if user else None,
+                "wallet": wallet,
                 "liveEntry": daily_state.live_entries.get(slot),
             })
         return {"slots": slots, "logs": daily_state.logs}
@@ -87,16 +99,9 @@ async def register(ipc: IPCServer) -> None:
         data = payload.get("data", {})
         qr_key = data.get("qrcode_key", "")
         qr_url = data.get("url", "")
-        qr = qrcode.QRCode(version=1, box_size=8, border=3)
-        qr.add_data(qr_url)
-        qr.make(fit=True)
-        image = qr.make_image(fill_color="black", back_color="white")
-        buffer = io.BytesIO()
-        image.save(buffer, format="PNG")
-        qr_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
         daily_state.qr_sessions[qr_key] = {"slot": slot, "createdAt": time.time(), "status": "pending"}
         daily_state.log("info", f"观众 {slot} 扫码登录二维码已生成")
-        return {"success": True, "qrKey": qr_key, "qrUrl": f"data:image/png;base64,{qr_base64}", "expiresIn": 180}
+        return {"success": True, "qrKey": qr_key, "qrUrl": _qr_data_url(qr_url), "expiresIn": 180}
 
     async def check_audience_qr_status(qr_key: str) -> Dict[str, Any]:
         session = daily_state.qr_sessions.get(qr_key)
@@ -137,6 +142,30 @@ async def register(ipc: IPCServer) -> None:
         user = await _require_audience(slot)
         daily_state.log("success", f"观众 {slot} {user['name']} 已就位")
         return {"success": True, "user": user}
+
+    async def wallet(slot: int) -> Dict[str, Any]:
+        user = await _require_audience(slot)
+        wallet_info = await _wallet_cached(slot, daily_state.read_cookie(slot), force=True)
+        daily_state.log("info", f"观众 {slot} {user['name']} 钱包余额 {wallet_info.get('goldText', '-')}")
+        return {"success": not wallet_info.get("error"), "wallet": wallet_info, "user": user}
+
+    async def recharge_qr(slot: int | None = None) -> Dict[str, Any]:
+        if slot is not None:
+            await _require_audience(slot)
+        recharge = await _discover_battery_recharge()
+        url = recharge["url"]
+        return {
+            "success": True,
+            "url": url,
+            "qrUrl": _qr_data_url(url),
+            "title": "B站电池充值",
+            "source": recharge.get("source"),
+            "scriptSource": recharge.get("scriptSource"),
+            "componentUrl": recharge.get("componentUrl"),
+            "trigger": recharge.get("trigger"),
+            "anchor": recharge.get("anchor"),
+            "fallback": recharge.get("fallback", False),
+        }
 
     async def enter_live_room(slot: int, room_id: str, duration_minutes: int = 16) -> Dict[str, Any]:
         user = await _require_audience(slot)
@@ -217,6 +246,8 @@ async def register(ipc: IPCServer) -> None:
     ipc.register_handler("daily:checkAudienceQRStatus", check_audience_qr_status)
     ipc.register_handler("daily:saveAudienceCookie", save_audience_cookie)
     ipc.register_handler("daily:validateAudience", validate_audience)
+    ipc.register_handler("daily:wallet", wallet)
+    ipc.register_handler("daily:rechargeQR", recharge_qr)
     ipc.register_handler("daily:enterLiveRoom", enter_live_room)
     ipc.register_handler("daily:sendDanmaku", send_danmaku)
     ipc.register_handler("daily:sendGift", send_gift)
@@ -262,6 +293,135 @@ async def _wallet(cookie: str) -> dict[str, Any]:
         return {"gold": gold, "goldText": f"{float(gold or 0) / 100:.2f} 电池", "response": data}
     except Exception as exc:
         return {"error": str(exc)}
+
+
+async def _wallet_cached(slot: int, cookie: str, force: bool = False) -> dict[str, Any]:
+    cached = daily_state.wallet_cache.get(slot)
+    if cached and not force and time.time() - float(cached.get("fetchedAtTs", 0)) < 30:
+        return cached
+    wallet = await _wallet(cookie)
+    wallet["fetchedAt"] = datetime.now().isoformat(timespec="seconds")
+    wallet["fetchedAtTs"] = time.time()
+    daily_state.wallet_cache[slot] = wallet
+    return wallet
+
+
+async def _discover_battery_recharge(force: bool = False) -> dict[str, Any]:
+    cached = daily_state.recharge_cache
+    if cached and not force and time.time() - float(cached.get("fetchedAtTs", 0)) < 3600:
+        return cached
+
+    try:
+        async with create_client(timeout=20.0, follow_redirects=True) as client:
+            html = (await client.get(BATTERY_RECHARGE_SOURCE_URL, headers=_headers("", BATTERY_RECHARGE_SOURCE_URL))).text
+            script_url = _extract_charge_script_url(html)
+            script_text = ""
+            if script_url:
+                script_text = (await client.get(script_url, headers=_headers("", BATTERY_RECHARGE_SOURCE_URL))).text
+        base_url = _extract_charge_base_url(script_text) or _extract_charge_base_url(html)
+        anchor = _extract_live_anchor(html)
+        room_id = anchor.get("roomId") or _first_group(BATTERY_RECHARGE_SOURCE_URL, r"live\.bilibili\.com/(\d+)")
+        live_url = _build_live_room_url(room_id)
+        component_url = _build_recharge_url(base_url, anchor) if base_url else ""
+        result = {
+            "url": live_url,
+            "componentUrl": component_url,
+            "source": BATTERY_RECHARGE_SOURCE_URL,
+            "scriptSource": script_url,
+            "anchor": anchor,
+            "trigger": {
+                "selector": "span[data-v-f20d4832]",
+                "text": "0 充值",
+                "component": 'OpenRechargeStores({ type: "goldSeedStore", contextType: 1, contextId: roomId })',
+            },
+            "fallback": False,
+            "fetchedAt": datetime.now().isoformat(timespec="seconds"),
+            "fetchedAtTs": time.time(),
+        }
+    except Exception as exc:
+        result = {
+            "url": BATTERY_RECHARGE_FALLBACK_URL,
+            "source": BATTERY_RECHARGE_SOURCE_URL,
+            "error": str(exc),
+            "fallback": True,
+            "fetchedAt": datetime.now().isoformat(timespec="seconds"),
+            "fetchedAtTs": time.time(),
+        }
+    daily_state.recharge_cache = result
+    return result
+
+
+def _build_live_room_url(room_id: str | None) -> str:
+    parsed = urlparse(BATTERY_RECHARGE_SOURCE_URL)
+    if room_id:
+        return f"https://live.bilibili.com/{room_id}"
+    return f"{parsed.scheme or 'https'}://{parsed.netloc}{parsed.path}".rstrip("/")
+
+
+def _extract_charge_script_url(html: str) -> str:
+    match = re.search(r"loadScript\([\"'](?P<src>[^\"']*pay-charge/level-charge\.umd\.js)[\"']\)", html)
+    if not match:
+        match = re.search(r"(?P<src>(?://|https?://)[^\"'<>]*pay-charge/level-charge\.umd\.js)", html)
+    if not match:
+        return ""
+    return _absolute_url(match.group("src"))
+
+
+def _extract_charge_base_url(text: str) -> str:
+    match = re.search(r"(?:(?:https?:)?//)?member\.bilibili\.com/mall/upower-pay", text)
+    return _absolute_url(match.group(0)) if match else ""
+
+
+def _extract_live_anchor(html: str) -> dict[str, Any]:
+    room_id = _first_group(html, r'"room_id"\s*:\s*(\d+)') or _first_group(BATTERY_RECHARGE_SOURCE_URL, r"live\.bilibili\.com/(\d+)")
+    uid = _first_group(html, r'"roomInitRes".{0,300}?"uid"\s*:\s*(\d+)') or _first_group(html, r'"news_info"\s*:\s*\{\s*"uid"\s*:\s*(\d+)')
+    uname = _decode_json_text(_first_group(html, r'"uname"\s*:\s*"([^"]*)"'))
+    face = _decode_json_text(_first_group(html, r'"face"\s*:\s*"([^"]*)"'))
+    return {"roomId": room_id, "mid": uid, "name": uname, "avatar": face}
+
+
+def _build_recharge_url(base_url: str, anchor: dict[str, Any]) -> str:
+    parsed = urlparse(base_url)
+    existing = {key: values[-1] for key, values in parse_qs(parsed.query).items()}
+    params = {
+        **existing,
+        "type": "goldSeedStore",
+        "contextType": "1",
+        "contextId": anchor.get("roomId") or "",
+        "from": "live_room",
+        "prePage": "live_room",
+        "spmid": "444.8",
+    }
+    query = urlencode({key: value for key, value in params.items() if value})
+    return f"{parsed.scheme or 'https'}://{parsed.netloc}{parsed.path}?{query}" if query else f"{parsed.scheme or 'https'}://{parsed.netloc}{parsed.path}"
+
+
+def _absolute_url(url: str) -> str:
+    if url.startswith("//"):
+        return "https:" + url
+    if url.startswith("http://") or url.startswith("https://"):
+        return url
+    return "https://" + url.lstrip("/")
+
+
+def _first_group(text: str, pattern: str) -> str:
+    match = re.search(pattern, text, re.S)
+    return match.group(1) if match else ""
+
+
+def _decode_json_text(value: str) -> str:
+    return value.replace("\\u002F", "/").replace("\\/", "/")
+
+
+def _qr_data_url(value: str) -> str:
+    qr = qrcode.QRCode(version=1, box_size=8, border=3)
+    qr.add_data(value)
+    qr.make(fit=True)
+    image = qr.make_image(fill_color="black", back_color="white")
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    qr_base64 = base64.b64encode(buffer.getvalue()).decode("utf-8")
+    return f"data:image/png;base64,{qr_base64}"
 
 
 def _headers(cookie: str, referer: str = "https://www.bilibili.com") -> dict[str, str]:

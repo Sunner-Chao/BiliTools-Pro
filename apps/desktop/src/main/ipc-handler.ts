@@ -210,6 +210,9 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('daily:validateAudience', (_, slot: number) => sendRequest('daily:validateAudience', { slot }));
   ipcMain.handle('daily:wallet', (_, slot: number) => sendRequest('daily:wallet', { slot }));
   ipcMain.handle('daily:rechargeQR', (_, slot?: number) => sendRequest('daily:rechargeQR', { slot }));
+  ipcMain.handle('daily:rechargePanel', (_, slot: number, roomId?: string) => sendRequest('daily:rechargePanel', { slot, roomId }));
+  ipcMain.handle('daily:createRechargeOrder', (_, slot: number, roomId: string, option: unknown, confirm?: boolean) => sendRequest('daily:createRechargeOrder', { slot, roomId, option, confirm }));
+  ipcMain.handle('daily:queryRechargeOrder', (_, slot: number, orderId: string) => sendRequest('daily:queryRechargeOrder', { slot, orderId }));
   ipcMain.handle('daily:enterLiveRoom', (_, slot: number, roomId: string, durationMinutes?: number) => sendRequest('daily:enterLiveRoom', { slot, roomId, durationMinutes }));
   ipcMain.handle('daily:sendDanmaku', (_, slot: number, roomId: string, message?: string) => sendRequest('daily:sendDanmaku', { slot, roomId, message }));
   ipcMain.handle('daily:sendGift', (_, slot: number, roomId: string) => sendRequest('daily:sendGift', { slot, roomId }));

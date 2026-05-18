@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Button, Card, Col, Form, Input, InputNumber, message, Modal, Row, Space, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Col, Divider, Form, Input, InputNumber, List, message, Modal, Row, Space, Table, Tag, Typography } from 'antd';
 import { CheckCircleOutlined, GiftOutlined, LoginOutlined, MessageOutlined, QrcodeOutlined, ReloadOutlined, VideoCameraOutlined, WalletOutlined } from '@ant-design/icons';
 import { useAppSelector } from '../store/hooks';
 
@@ -12,6 +12,8 @@ const DailyTasksPage: React.FC = () => {
   const [qrInfo, setQrInfo] = useState<any>(null);
   const [qrMessage, setQrMessage] = useState('');
   const [rechargeInfo, setRechargeInfo] = useState<any>(null);
+  const [rechargeOrder, setRechargeOrder] = useState<any>(null);
+  const [customRechargeAmount, setCustomRechargeAmount] = useState<number | null>(60);
   const [loading, setLoading] = useState(false);
 
   const loadStatus = async () => {
@@ -88,13 +90,74 @@ const DailyTasksPage: React.FC = () => {
     } finally { setLoading(false); }
   };
 
-  const showRechargeQR = async (slot: number) => {
+  const showRechargePanel = async (slot: number) => {
+    setLoading(true);
+    setRechargeOrder(null);
+    try {
+      const roomId = form.getFieldValue('roomId') || '';
+      const result = await window.api.daily.rechargePanel(slot, roomId);
+      if (result?.success) { setRechargeInfo({ ...result, slot }); }
+      else if (result?.panel) {
+        setRechargeInfo({ ...result, slot });
+        message.warning(result?.error || '充值面板部分接口返回失败，请查看详情');
+      } else { message.warning(result?.error || '充值面板获取失败'); }
+    } finally { setLoading(false); }
+  };
+
+  const createRechargeOrder = (option: any) => {
+    if (rechargeInfo?.slot === undefined) return;
+    const roomId = form.getFieldValue('roomId') || rechargeInfo?.room?.roomId || '';
+    Modal.confirm({
+      title: `确认创建 ${option.priceText || `${Number(option.price || 0) / 100} 电池`} 充值订单？`,
+      content: '确认后将向 B 站请求支付二维码订单；仍需你手动扫码支付，当前软件不会自动付款。',
+      okText: '创建订单',
+      cancelText: '取消',
+      onOk: async () => {
+        setLoading(true);
+        try {
+          const result = await window.api.daily.createRechargeOrder(rechargeInfo.slot, roomId, option, true);
+          if (result?.success) {
+            setRechargeOrder(result.order);
+            message.success('充值二维码订单已创建');
+          } else {
+            message.error(result?.error || result?.order?.message || '创建订单失败');
+          }
+          await loadStatus();
+        } finally {
+          setLoading(false);
+        }
+      },
+    });
+  };
+
+  const createCustomRechargeOrder = () => {
+    if (!customRechargeAmount) {
+      message.warning('请输入自定义充值金额');
+      return;
+    }
+    createRechargeOrder({
+      custom: true,
+      amount: customRechargeAmount,
+      price: Math.round(customRechargeAmount * 100),
+      priceText: `${customRechargeAmount.toFixed(2)} 电池`,
+    });
+  };
+
+  const queryRechargeOrder = async () => {
+    if (rechargeInfo?.slot === undefined || !rechargeOrder?.orderId) return;
     setLoading(true);
     try {
-      const result = await window.api.daily.rechargeQR(slot);
-      if (result?.success) { setRechargeInfo({ ...result, slot }); }
-      else { message.warning(result?.error || '充值二维码生成失败'); }
-    } finally { setLoading(false); }
+      const result = await window.api.daily.queryRechargeOrder(rechargeInfo.slot, rechargeOrder.orderId);
+      if (result?.success) {
+        setRechargeOrder((current: any) => ({ ...current, status: result.order?.status, statusText: result.order?.statusText, query: result.order }));
+        message.info(result.order?.statusText || '订单状态已更新');
+      } else {
+        message.warning(result?.order?.message || '订单查询失败');
+      }
+      await loadStatus();
+    } finally {
+      setLoading(false);
+    }
   };
 
   const logColumns = [
@@ -143,7 +206,7 @@ const DailyTasksPage: React.FC = () => {
                     <Button icon={<LoginOutlined />} onClick={() => { setActiveSlot(slot.slot); setQrInfo(null); setQrMessage(''); generateQR(slot.slot); }}>扫码验证</Button>
                     <Button loading={loading} icon={<CheckCircleOutlined />} onClick={() => run(() => window.api.daily.validateAudience(slot.slot), '身份有效')}>检查</Button>
                     <Button loading={loading} icon={<WalletOutlined />} onClick={() => refreshWallet(slot.slot)}>查余额</Button>
-                    <Button loading={loading} icon={<QrcodeOutlined />} onClick={() => showRechargeQR(slot.slot)}>充值电池</Button>
+                    <Button loading={loading} icon={<QrcodeOutlined />} onClick={() => showRechargePanel(slot.slot)}>充值电池</Button>
                     <Button loading={loading} icon={<VideoCameraOutlined />} onClick={() => run((values) => window.api.daily.enterLiveRoom(slot.slot, values.roomId, values.durationMinutes), '已进入直播间')}>去直播间</Button>
                     <Button loading={loading} icon={<MessageOutlined />} onClick={() => run((values) => window.api.daily.sendDanmaku(slot.slot, values.roomId, values.message), '弹幕已发送')}>发送弹幕*1</Button>
                     <Button loading={loading} icon={<GiftOutlined />} danger onClick={() => run((values) => window.api.daily.sendGift(slot.slot, values.roomId), '礼物请求已发送')}>赠送牛蛙*1</Button>
@@ -190,18 +253,96 @@ const DailyTasksPage: React.FC = () => {
       <Modal
         title={rechargeInfo?.slot === undefined ? '充值电池' : `观众 ${rechargeInfo.slot} 充值电池`}
         open={Boolean(rechargeInfo)}
-        onCancel={() => setRechargeInfo(null)}
+        onCancel={() => { setRechargeInfo(null); setRechargeOrder(null); }}
         footer={[
-          <Button key="open" type="primary" onClick={() => rechargeInfo?.url && window.api.system.openExternal(rechargeInfo.url)}>打开直播间</Button>,
-          <Button key="close" onClick={() => setRechargeInfo(null)}>关闭</Button>,
+          <Button key="open" type="primary" onClick={() => rechargeInfo?.url && window.api.system.openExternal(rechargeInfo.url)}>打开直播间充值入口</Button>,
+          <Button key="close" onClick={() => { setRechargeInfo(null); setRechargeOrder(null); }}>关闭</Button>,
         ]}
       >
-        <Space direction="vertical" style={{ width: '100%', alignItems: 'center' }}>
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Alert
+            type="info"
+            showIcon
+            message="已按直播间充值按钮链路拉取真实接口"
+            description="当前只查询余额、充值面板、公告和资源配置；创建支付二维码订单必须由用户明确选择金额后再触发，不会在这里自动下单。"
+          />
+          <Space direction="vertical" style={{ width: '100%', alignItems: 'center' }}>
           {rechargeInfo?.qrUrl ? <img src={rechargeInfo.qrUrl} alt="充值电池二维码" style={{ width: 220, height: 220, borderRadius: 12 }} /> : null}
-          <Typography.Text style={{ color: 'var(--bt-text-secondary)' }}>打开直播间后点击右下方“0 充值”</Typography.Text>
+          <Typography.Text style={{ color: 'var(--bt-text-secondary)' }}>钱包余额：{rechargeInfo?.panel?.walletText || '-'}</Typography.Text>
           <Typography.Text copyable style={{ color: 'var(--bt-text-secondary)', fontSize: 12 }}>{rechargeInfo?.url || ''}</Typography.Text>
           {rechargeInfo?.componentUrl ? (
             <Typography.Text copyable style={{ color: 'var(--bt-text-disabled)', fontSize: 12 }}>组件入口：{rechargeInfo.componentUrl}</Typography.Text>
+          ) : null}
+          </Space>
+          <Divider style={{ margin: '8px 0' }} />
+          <Row gutter={[8, 8]}>
+            {[
+              ['钱包', rechargeInfo?.panel?.wallet],
+              ['充值面板', rechargeInfo?.panel?.panel],
+              ['公告', rechargeInfo?.panel?.announcement],
+              ['资源配置', rechargeInfo?.panel?.clientResource],
+              ['主播关系', rechargeInfo?.panel?.relation],
+            ].filter(([, item]) => item).map(([label, item]: any) => (
+              <Col span={12} key={label}>
+                <Card size="small" title={label}>
+                  <Tag color={item?.code === 0 ? 'green' : 'red'}>code={item?.code ?? '-'}</Tag>
+                  <Typography.Text style={{ marginLeft: 8, fontSize: 12, color: 'var(--bt-text-secondary)' }}>
+                    {item?.message || item?.msg || 'OK'}
+                  </Typography.Text>
+                </Card>
+              </Col>
+            ))}
+          </Row>
+          {rechargeInfo?.panel?.payOptions?.length ? (
+            <List
+              size="small"
+              header="选择充值档位（来自 rechargePanel）"
+              dataSource={rechargeInfo.panel.payOptions}
+              renderItem={(item: any) => (
+                <List.Item
+                  actions={[
+                    <Button key="create" size="small" type="primary" loading={loading} onClick={() => createRechargeOrder(item)}>下单拉取二维码</Button>,
+                  ]}
+                >
+                  <Typography.Text>{item.priceText || `${Number(item.price || 0) / 100} 电池`}</Typography.Text>
+                  <Typography.Text type="secondary">goods={item.id || '-'} index={item.index || '-'}</Typography.Text>
+                </List.Item>
+              )}
+            />
+          ) : (
+            <Typography.Text style={{ color: 'var(--bt-text-secondary)', fontSize: 12 }}>未解析到充值档位，可查看接口 code 判断是否被登录态或地区风控拦截。</Typography.Text>
+          )}
+          <Card size="small" title="自定义金额充值">
+            <Space.Compact style={{ width: '100%' }}>
+              <InputNumber
+                min={10}
+                max={100000}
+                step={10}
+                precision={2}
+                value={customRechargeAmount}
+                addonAfter="电池"
+                style={{ width: '100%' }}
+                onChange={(value) => setCustomRechargeAmount(typeof value === 'number' ? value : null)}
+              />
+              <Button type="primary" loading={loading} onClick={createCustomRechargeOrder}>下单拉取二维码</Button>
+            </Space.Compact>
+            <Typography.Text style={{ display: 'block', marginTop: 8, color: 'var(--bt-text-secondary)', fontSize: 12 }}>
+              自定义金额按官方组件换算：10 电池 = 1 元，最小 10 电池。
+            </Typography.Text>
+          </Card>
+          <Typography.Paragraph style={{ marginBottom: 0, color: 'var(--bt-text-secondary)', fontSize: 12 }}>
+            createQrCodeOrder 会在点击“下单拉取二维码”并确认后调用；queryOrderStatus 用于手动刷新订单状态。
+          </Typography.Paragraph>
+          {rechargeOrder ? (
+            <Card size="small" title="当前充值订单">
+              <Space direction="vertical" style={{ width: '100%', alignItems: 'center' }}>
+                {rechargeOrder.qrUrl ? <img src={rechargeOrder.qrUrl} alt="充值支付二维码" style={{ width: 220, height: 220, borderRadius: 12 }} /> : null}
+                <Typography.Text copyable style={{ fontSize: 12, color: 'var(--bt-text-secondary)' }}>订单号：{rechargeOrder.orderId || '-'}</Typography.Text>
+                <Typography.Text style={{ fontSize: 12, color: 'var(--bt-text-secondary)' }}>状态：{rechargeOrder.statusText || '待支付'}</Typography.Text>
+                {rechargeOrder.codeUrl ? <Typography.Text copyable style={{ fontSize: 12, color: 'var(--bt-text-disabled)' }}>{rechargeOrder.codeUrl}</Typography.Text> : null}
+                <Button loading={loading} onClick={queryRechargeOrder}>刷新支付状态</Button>
+              </Space>
+            </Card>
           ) : null}
         </Space>
       </Modal>

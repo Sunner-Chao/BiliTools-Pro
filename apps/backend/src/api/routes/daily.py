@@ -1,4 +1,5 @@
 """Daily live task routes migrated from the original Tk daily-task popup."""
+import asyncio
 import base64
 import io
 import os
@@ -35,6 +36,7 @@ class DailyTaskState:
         self.qr_sessions: dict[str, dict[str, Any]] = {}
         self.wallet_cache: dict[int, dict[str, Any]] = {}
         self.recharge_cache: dict[str, Any] = {}
+        self.entry_tasks: dict[int, asyncio.Task] = {}
 
     def log(self, level: str, message: str) -> None:
         self.logs.append({"time": datetime.now().strftime("%H:%M:%S"), "level": level, "message": message})
@@ -167,26 +169,85 @@ async def register(ipc: IPCServer) -> None:
             "fallback": recharge.get("fallback", False),
         }
 
+    async def recharge_panel(slot: int, room_id: str = "") -> Dict[str, Any]:
+        user = await _require_audience(slot)
+        cookie = daily_state.read_cookie(slot)
+        room = await _live_room_info(cookie, room_id) if room_id else {}
+        panel = await _fetch_recharge_panel(cookie, room)
+        recharge = await _discover_battery_recharge()
+        daily_state.log(
+            "success" if panel.get("success") else "error",
+            f"观众 {slot} {user['name']} 充值面板: 钱包 code={panel.get('wallet', {}).get('code')} 面板 code={panel.get('panel', {}).get('code')}",
+        )
+        return {
+            "success": bool(panel.get("success")),
+            "slot": slot,
+            "user": user,
+            "room": room,
+            "panel": panel,
+            "url": recharge.get("url"),
+            "qrUrl": _qr_data_url(recharge.get("url", BATTERY_RECHARGE_FALLBACK_URL)),
+            "componentUrl": recharge.get("componentUrl"),
+            "endpointSpec": _recharge_endpoint_spec(),
+        }
+
+    async def create_recharge_order(slot: int, room_id: str, option: dict[str, Any], confirm: bool = False) -> Dict[str, Any]:
+        if not confirm:
+            raise RuntimeError("创建充值订单需要用户二次确认")
+        user = await _require_audience(slot)
+        cookie = daily_state.read_cookie(slot)
+        room = await _live_room_info(cookie, room_id)
+        if room.get("code") != 0:
+            return {"success": False, "error": room.get("message") or "直播间信息获取失败", "room": room}
+        panel = await _fetch_recharge_panel(cookie, room)
+        goods = _build_recharge_goods(panel, option)
+        if not goods:
+            return {"success": False, "error": "充值金额无效，请刷新充值面板后重试", "panel": panel}
+        order = await _create_recharge_qr_order(cookie, room, goods)
+        ok = order.get("code") == 0 and bool(order.get("orderId"))
+        daily_state.log(
+            "success" if ok else "error",
+            f"观众 {slot} {user['name']} 创建充值订单 {goods.get('priceText')}: code={order.get('code')} order={order.get('orderId') or '-'}",
+        )
+        return {"success": ok, "user": user, "room": room, "goods": goods, "order": order}
+
+    async def query_recharge_order(slot: int, order_id: str) -> Dict[str, Any]:
+        user = await _require_audience(slot)
+        cookie = daily_state.read_cookie(slot)
+        result = await _query_recharge_order(cookie, order_id)
+        daily_state.log("info", f"观众 {slot} {user['name']} 查询充值订单 {order_id}: {result.get('statusText')}")
+        return {"success": result.get("code") == 0, "user": user, "order": result}
+
     async def enter_live_room(slot: int, room_id: str, duration_minutes: int = 16) -> Dict[str, Any]:
         user = await _require_audience(slot)
-        headers = _headers(daily_state.read_cookie(slot), f"https://live.bilibili.com/{room_id}")
-        async with create_client(timeout=12.0) as client:
-            payload = (await client.get(
-                "https://api.live.bilibili.com/xlive/web-room/v1/index/getInfoByRoom",
-                params={"room_id": room_id},
-                headers=headers,
-            )).json()
-        if payload.get("code") != 0:
-            daily_state.log("error", f"观众 {slot} 进入直播间失败: code={payload.get('code')} message={payload.get('message') or payload.get('msg')}")
-            return {"success": False, "response": payload}
+        cookie = daily_state.read_cookie(slot)
+        room = await _live_room_info(cookie, room_id)
+        if room.get("code") != 0:
+            daily_state.log("error", f"观众 {slot} 进入直播间失败: code={room.get('code')} message={room.get('message')}")
+            return {"success": False, "response": room.get("response"), "actions": []}
+        actions = await _enter_live_room_actions(cookie, room.get("roomId") or room_id)
+        ok_actions = [item for item in actions if item.get("ok")]
+        if not ok_actions:
+            daily_state.log("error", f"观众 {slot} 进房动作未确认成功: {_summarize_actions(actions)}")
+            return {"success": False, "response": room.get("response"), "actions": actions}
         expires_at = datetime.now() + timedelta(minutes=max(duration_minutes, 1))
+        old_task = daily_state.entry_tasks.pop(slot, None)
+        if old_task and not old_task.done():
+            old_task.cancel()
+        daily_state.entry_tasks[slot] = asyncio.create_task(
+            _keep_live_room_active(slot, user["name"], cookie, room.get("roomId") or room_id, max(duration_minutes, 1))
+        )
         daily_state.live_entries[slot] = {
-            "roomId": room_id,
+            "roomId": room.get("roomId") or room_id,
+            "shortId": room.get("shortId"),
+            "title": room.get("title"),
+            "anchor": room.get("anchor"),
             "name": user["name"],
             "expiresAt": expires_at.isoformat(timespec="seconds"),
+            "actions": actions,
         }
-        daily_state.log("success", f"观众 {slot} {user['name']} 进入直播间 {room_id}，{duration_minutes} 分钟后视为退出")
-        return {"success": True, "response": payload, "entry": daily_state.live_entries[slot]}
+        daily_state.log("success", f"观众 {slot} {user['name']} 已进入直播间 {room.get('roomId') or room_id}，保活 {duration_minutes} 分钟")
+        return {"success": True, "response": room.get("response"), "actions": actions, "entry": daily_state.live_entries[slot]}
 
     async def send_danmaku(slot: int, room_id: str, message: str = "") -> Dict[str, Any]:
         user = await _require_audience(slot)
@@ -248,6 +309,9 @@ async def register(ipc: IPCServer) -> None:
     ipc.register_handler("daily:validateAudience", validate_audience)
     ipc.register_handler("daily:wallet", wallet)
     ipc.register_handler("daily:rechargeQR", recharge_qr)
+    ipc.register_handler("daily:rechargePanel", recharge_panel)
+    ipc.register_handler("daily:createRechargeOrder", create_recharge_order)
+    ipc.register_handler("daily:queryRechargeOrder", query_recharge_order)
     ipc.register_handler("daily:enterLiveRoom", enter_live_room)
     ipc.register_handler("daily:sendDanmaku", send_danmaku)
     ipc.register_handler("daily:sendGift", send_gift)
@@ -285,11 +349,19 @@ async def _wallet(cookie: str) -> dict[str, Any]:
     try:
         async with create_client(timeout=10.0) as client:
             data = (await client.get(
-                "https://api.live.bilibili.com/xlive/revenue/v1/wallet/myWallet",
-                params={"need_bp": "0", "need_metal": "0", "platform": "pc", "bp_with_decimal": "0", "ios_bp_afford_party": "0"},
-                headers=_headers(cookie),
+                "https://api.live.bilibili.com/xlive/revenue/v1/wallet/myGoldWallet",
+                params={"need_bp": "1", "need_metal": "1", "platform": "pc", "bp_with_decimal": "0", "ios_bp_afford_party": "0"},
+                headers=_headers(cookie, "https://live.bilibili.com/"),
             )).json()
-        gold = data.get("data", {}).get("gold")
+        if data.get("code") != 0:
+            async with create_client(timeout=10.0) as client:
+                data = (await client.get(
+                    "https://api.live.bilibili.com/xlive/revenue/v1/wallet/myWallet",
+                    params={"need_bp": "0", "need_metal": "0", "platform": "pc", "bp_with_decimal": "0", "ios_bp_afford_party": "0"},
+                    headers=_headers(cookie, "https://live.bilibili.com/"),
+                )).json()
+        wallet = data.get("data", {}) if isinstance(data.get("data"), dict) else {}
+        gold = _first_number(wallet, ("gold", "gold_balance", "goldBalance", "bp", "bp_num"))
         return {"gold": gold, "goldText": f"{float(gold or 0) / 100:.2f} 电池", "response": data}
     except Exception as exc:
         return {"error": str(exc)}
@@ -304,6 +376,392 @@ async def _wallet_cached(slot: int, cookie: str, force: bool = False) -> dict[st
     wallet["fetchedAtTs"] = time.time()
     daily_state.wallet_cache[slot] = wallet
     return wallet
+
+
+async def _live_room_info(cookie: str, room_id: str) -> dict[str, Any]:
+    try:
+        async with create_client(timeout=12.0) as client:
+            payload = (await client.get(
+                "https://api.live.bilibili.com/xlive/web-room/v1/index/getInfoByRoom",
+                params={"room_id": room_id},
+                headers=_headers(cookie, f"https://live.bilibili.com/{room_id}"),
+            )).json()
+        data = payload.get("data", {}) if isinstance(payload.get("data"), dict) else {}
+        room_info = data.get("room_info", {}) if isinstance(data.get("room_info"), dict) else {}
+        anchor_info = data.get("anchor_info", {}) if isinstance(data.get("anchor_info"), dict) else {}
+        base_info = anchor_info.get("base_info", {}) if isinstance(anchor_info.get("base_info"), dict) else {}
+        anchor_mid = base_info.get("mid") or base_info.get("uid") or anchor_info.get("uid") or room_info.get("uid")
+        return {
+            "code": payload.get("code"),
+            "message": payload.get("message") or payload.get("msg"),
+            "roomId": str(room_info.get("room_id") or room_id),
+            "shortId": room_info.get("short_id"),
+            "title": room_info.get("title") or "",
+            "anchor": {"mid": anchor_mid, "name": base_info.get("uname"), "face": base_info.get("face")},
+            "response": payload,
+        }
+    except Exception as exc:
+        return {"code": -1, "message": str(exc), "roomId": room_id, "response": {"error": str(exc)}}
+
+
+async def _enter_live_room_actions(cookie: str, room_id: str) -> list[dict[str, Any]]:
+    csrf = _csrf(cookie)
+    referer = f"https://live.bilibili.com/{room_id}"
+    actions: list[dict[str, Any]] = []
+    async with create_client(timeout=12.0) as client:
+        actions.append(await _request_action(
+            client,
+            "弹幕服务器信息",
+            "GET",
+            "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo",
+            headers=_headers(cookie, referer),
+            params={"id": room_id, "type": "0"},
+        ))
+        entry_data = {"room_id": room_id, "platform": "pc", "csrf_token": csrf, "csrf": csrf, "visit_id": ""}
+        actions.append(await _request_action(
+            client,
+            "web-room 进房动作",
+            "POST",
+            "https://api.live.bilibili.com/xlive/web-room/v1/index/roomEntryAction",
+            headers=_headers(cookie, referer),
+            data=entry_data,
+        ))
+        actions.append(await _request_action(
+            client,
+            "Room 进房动作",
+            "POST",
+            "https://api.live.bilibili.com/room/v1/Room/room_entry_action",
+            headers=_headers(cookie, referer),
+            data=entry_data,
+        ))
+    return actions
+
+
+async def _keep_live_room_active(slot: int, name: str, cookie: str, room_id: str, duration_minutes: int) -> None:
+    end_ts = time.time() + duration_minutes * 60
+    try:
+        while time.time() < end_ts:
+            await asyncio.sleep(min(55, max(1, end_ts - time.time())))
+            if time.time() >= end_ts:
+                break
+            room = await _live_room_info(cookie, room_id)
+            actions = await _enter_live_room_actions(cookie, room_id)
+            ok = room.get("code") == 0 and any(item.get("ok") for item in actions)
+            daily_state.log("success" if ok else "error", f"观众 {slot} {name} 直播间保活: {_summarize_actions(actions)}")
+        entry = daily_state.live_entries.get(slot)
+        if entry and str(entry.get("roomId")) == str(room_id):
+            entry["expired"] = True
+        daily_state.log("info", f"观众 {slot} {name} 直播间 {room_id} 保活结束")
+    except asyncio.CancelledError:
+        daily_state.log("info", f"观众 {slot} {name} 直播间 {room_id} 保活已替换")
+
+
+async def _request_action(client: httpx.AsyncClient, name: str, method: str, url: str, **kwargs: Any) -> dict[str, Any]:
+    try:
+        response = await client.request(method, url, **kwargs)
+        payload = response.json()
+        return {
+            "name": name,
+            "ok": payload.get("code") == 0,
+            "code": payload.get("code"),
+            "message": payload.get("message") or payload.get("msg"),
+            "httpStatus": response.status_code,
+            "response": payload,
+        }
+    except Exception as exc:
+        return {"name": name, "ok": False, "code": -1, "message": str(exc)}
+
+
+def _summarize_actions(actions: list[dict[str, Any]]) -> str:
+    return "；".join(f"{item.get('name')} code={item.get('code')} {item.get('message') or ''}".strip() for item in actions)
+
+
+async def _fetch_recharge_panel(cookie: str, room: dict[str, Any]) -> dict[str, Any]:
+    room_id = str(room.get("roomId") or "")
+    anchor_mid = str((room.get("anchor") or {}).get("mid") or "")
+    referer = f"https://live.bilibili.com/{room_id}" if room_id else "https://live.bilibili.com/"
+    timestamp = str(int(time.time() * 1000))
+    result: dict[str, Any] = {"success": False, "fetchedAt": datetime.now().isoformat(timespec="seconds")}
+    async with create_client(timeout=15.0) as client:
+        result["wallet"] = await _safe_get_json(
+            client,
+            "https://api.live.bilibili.com/xlive/revenue/v1/wallet/myGoldWallet",
+            params={"need_bp": "1", "need_metal": "1", "platform": "pc", "bp_with_decimal": "0", "ios_bp_afford_party": "0"},
+            headers=_headers(cookie, referer),
+        )
+        result["panel"] = await _safe_get_json(
+            client,
+            "https://api.live.bilibili.com/xlive/revenue/v2/order/rechargePanel",
+            params={"context_type": "1", "build": "0", "platform": "pc", "need_hamster": "1", "t": timestamp},
+            headers=_headers(cookie, referer),
+        )
+        result["announcement"] = await _safe_get_json(
+            client,
+            "https://api.live.bilibili.com/xlive/revenue/v2/general/rechargeAnnouncement",
+            headers=_headers(cookie, referer),
+        )
+        result["clientResource"] = await _safe_get_json(
+            client,
+            "https://api.live.bilibili.com/xlive/open-interface/v1/fetch_client_resource",
+            params={"business": "live_revenue_business_test:0"},
+            headers=_headers(cookie, referer),
+        )
+        if anchor_mid:
+            result["relation"] = await _safe_get_json(
+                client,
+                "https://api.bilibili.com/x/relation",
+                params={"fid": anchor_mid},
+                headers=_headers(cookie, "https://www.bilibili.com/"),
+            )
+    result["walletText"] = _wallet_text_from_response(result.get("wallet", {}))
+    result["payOptions"] = _extract_pay_options(result.get("panel", {}))
+    result["success"] = result.get("wallet", {}).get("code") == 0 and result.get("panel", {}).get("code") == 0
+    return result
+
+
+async def _safe_get_json(client: httpx.AsyncClient, url: str, **kwargs: Any) -> dict[str, Any]:
+    try:
+        response = await client.get(url, **kwargs)
+        payload = response.json()
+        if isinstance(payload, dict):
+            payload.setdefault("httpStatus", response.status_code)
+            return payload
+        return {"code": -1, "message": "响应不是 JSON 对象", "httpStatus": response.status_code, "data": payload}
+    except Exception as exc:
+        return {"code": -1, "message": str(exc)}
+
+
+def _wallet_text_from_response(response: dict[str, Any]) -> str:
+    data = response.get("data", {}) if isinstance(response.get("data"), dict) else {}
+    gold = _first_number(data, ("gold", "gold_balance", "goldBalance", "bp", "bp_num"))
+    return f"{float(gold or 0) / 100:.2f} 电池"
+
+
+def _extract_pay_options(response: dict[str, Any]) -> list[dict[str, Any]]:
+    data = response.get("data", {})
+    options: list[dict[str, Any]] = []
+
+    def walk(node: Any) -> None:
+        if isinstance(node, dict):
+            keys = set(node)
+            if {"bp_num", "pay_bp"} & keys or {"price", "money", "amount"} & keys:
+                price = node.get("price") or node.get("money") or node.get("amount") or 0
+                options.append({
+                    "title": node.get("title") or node.get("name") or node.get("desc") or node.get("display_name") or "充值档位",
+                    "id": node.get("id"),
+                    "index": node.get("index"),
+                    "bpNum": node.get("bp_num") or node.get("bpNum") or node.get("recharge_bp"),
+                    "payBp": node.get("pay_bp") or node.get("payBp"),
+                    "price": price,
+                    "priceText": f"{float(price or 0) / 100:.2f} 电池",
+                    "raw": node,
+                })
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(data)
+    unique: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in options:
+        marker = f"{item.get('title')}|{item.get('bpNum')}|{item.get('payBp')}|{item.get('price')}"
+        if marker not in seen:
+            unique.append(item)
+            seen.add(marker)
+    return unique[:12]
+
+
+def _build_recharge_goods(panel: dict[str, Any], option: dict[str, Any]) -> dict[str, Any] | None:
+    if option.get("custom"):
+        price = _custom_recharge_price(option)
+        if price <= 0:
+            return None
+        return {
+            "id": 1,
+            "index": 0,
+            "name": "gold",
+            "price": price,
+            "goodsNum": _recharge_goods_num(price),
+            "priceText": f"{float(price) / 100:.2f} 电池",
+            "custom": True,
+            "raw": {"price": price, "name": "gold", "custom": True},
+        }
+    response = panel.get("panel", {}) if isinstance(panel.get("panel"), dict) else {}
+    data = response.get("data", {}) if isinstance(response.get("data"), dict) else {}
+    goods_list = data.get("goods", []) if isinstance(data.get("goods"), list) else []
+    selected_price = _to_int(option.get("price") or option.get("payCash") or option.get("raw", {}).get("price"))
+    selected_index = _to_int(option.get("index") or option.get("raw", {}).get("index"))
+    selected_id = _to_int(option.get("id") or option.get("raw", {}).get("id"))
+    for item in goods_list:
+        if not isinstance(item, dict):
+            continue
+        price = _to_int(item.get("price"))
+        index = _to_int(item.get("index"))
+        goods_id = _to_int(item.get("id"))
+        if price == selected_price and (not selected_index or index == selected_index) and (not selected_id or goods_id == selected_id):
+            return {
+                "id": goods_id or 1,
+                "index": index,
+                "name": item.get("name") or "gold",
+                "price": price,
+                "goodsNum": _recharge_goods_num(price),
+                "priceText": f"{float(price or 0) / 100:.2f} 电池",
+                "raw": item,
+            }
+    return None
+
+
+def _custom_recharge_price(option: dict[str, Any]) -> int:
+    # B 站充值组件内部金额单位：60 电池 => 6000，goods_num => 6。
+    amount = option.get("amount")
+    if amount is None:
+        amount = option.get("batteryAmount")
+    try:
+        value = float(amount)
+    except (TypeError, ValueError):
+        return 0
+    if value < 10 or value > 100000:
+        return 0
+    return int(round(value * 100))
+
+
+def _recharge_goods_num(price: int) -> str:
+    value = float(price or 0) / 1000
+    return str(int(value)) if value.is_integer() else f"{value:.2f}".rstrip("0").rstrip(".")
+
+
+async def _create_recharge_qr_order(cookie: str, room: dict[str, Any], goods: dict[str, Any]) -> dict[str, Any]:
+    csrf = _csrf(cookie)
+    room_id = str(room.get("roomId") or "")
+    room_data = room.get("response", {}).get("data", {}) if isinstance(room.get("response"), dict) else {}
+    room_info = room_data.get("room_info", {}) if isinstance(room_data.get("room_info"), dict) else {}
+    anchor_mid = (room.get("anchor") or {}).get("mid") or room_info.get("uid") or ""
+    data = {
+        "goods_id": goods.get("id") or 1,
+        "goods_num": goods.get("goodsNum") or _recharge_goods_num(_to_int(goods.get("price"))),
+        "pay_cash": goods.get("price") or "",
+        "pay_bp": "",
+        "ruid": anchor_mid,
+        "parent_area_id": room_info.get("parent_area_id") or "",
+        "area_id": room_info.get("area_id") or "",
+        "biz_extra": "",
+        "is_contract": 0,
+        "context_type": 1,
+        "context_id": room_id,
+        "build": 0,
+        "platform": "pc",
+        "ios_bp": 0,
+        "common_bp": 0,
+        "csrf": csrf,
+        "csrf_token": csrf,
+        "live_statistics": _json_dumps({
+            "pc_client": "pcWeb",
+            "jumpfrom": "-99998",
+            "room_category": str(room_info.get("parent_area_id") or "-99998"),
+            "official_channel": {"program_room_id": "-99998", "program_up_id": "-99998"},
+        }),
+        "statistics": _json_dumps({"platform": 5, "pc_client": "pcWeb", "appId": 100}),
+    }
+    try:
+        async with create_client(timeout=20.0) as client:
+            response = await client.post(
+                "https://api.live.bilibili.com/xlive/revenue/v1/order/createQrCodeOrder",
+                data=data,
+                headers={**_headers(cookie, f"https://live.bilibili.com/{room_id}"), "Content-Type": "application/x-www-form-urlencoded"},
+            )
+        payload = response.json()
+        order_data = payload.get("data", {}) if isinstance(payload.get("data"), dict) else {}
+        code_url = order_data.get("code_url") or order_data.get("qrcode_url") or ""
+        expire = order_data.get("expire") or 0
+        return {
+            "code": payload.get("code"),
+            "message": payload.get("message") or payload.get("msg"),
+            "orderId": order_data.get("order_id") or order_data.get("orderId") or "",
+            "codeUrl": code_url,
+            "qrUrl": _qr_data_url(code_url) if code_url else "",
+            "expire": expire,
+            "expireSeconds": expire,
+            "response": payload,
+        }
+    except Exception as exc:
+        return {"code": -1, "message": str(exc), "orderId": "", "response": {"error": str(exc)}}
+
+
+async def _query_recharge_order(cookie: str, order_id: str) -> dict[str, Any]:
+    csrf = _csrf(cookie)
+    try:
+        async with create_client(timeout=12.0) as client:
+            response = await client.post(
+                "https://api.live.bilibili.com/xlive/revenue/v1/order/queryOrderStatus",
+                data={"order_id": order_id, "csrf": csrf, "csrf_token": csrf},
+                headers={**_headers(cookie, "https://live.bilibili.com/"), "Content-Type": "application/x-www-form-urlencoded"},
+            )
+        payload = response.json()
+        if payload.get("code") in (1300001, -504):
+            return {"code": 0, "status": "pending", "statusText": "待支付", "response": payload}
+        data = payload.get("data", {}) if isinstance(payload.get("data"), dict) else {}
+        status = _payment_status(data.get("status"))
+        return {
+            "code": payload.get("code"),
+            "message": payload.get("message") or payload.get("msg"),
+            "status": status,
+            "statusText": {"pending": "待支付", "success": "已支付", "fail": "支付失败"}.get(status, "未知"),
+            "response": payload,
+        }
+    except Exception as exc:
+        return {"code": -1, "message": str(exc), "status": "fail", "statusText": "查询失败", "response": {"error": str(exc)}}
+
+
+def _payment_status(value: Any) -> str:
+    try:
+        status = int(value)
+    except (TypeError, ValueError):
+        return "fail"
+    if status == 1:
+        return "pending"
+    if status == 3:
+        return "fail"
+    return "success"
+
+
+def _to_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _json_dumps(value: Any) -> str:
+    import json
+
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def _first_number(data: dict[str, Any], keys: tuple[str, ...]) -> float:
+    for key in keys:
+        value = data.get(key)
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value)
+            except ValueError:
+                pass
+    return 0.0
+
+
+def _recharge_endpoint_spec() -> list[dict[str, str]]:
+    return [
+        {"name": "myGoldWallet", "role": "查询电池/金瓜子/金属等钱包余额", "method": "GET"},
+        {"name": "rechargePanel", "role": "查询直播场景充值面板、档位和支付配置", "method": "GET"},
+        {"name": "rechargeAnnouncement", "role": "查询充值公告/风控提示", "method": "GET"},
+        {"name": "fetch_client_resource", "role": "查询直播营收业务实验/资源配置", "method": "GET"},
+        {"name": "x/relation", "role": "查询当前观众与主播关系，通常用于面板上下文", "method": "GET"},
+        {"name": "createQrCodeOrder", "role": "创建支付二维码订单，必须由用户明确选择金额后触发", "method": "POST"},
+        {"name": "queryOrderStatus", "role": "轮询已创建订单支付状态", "method": "GET/POST"},
+    ]
 
 
 async def _discover_battery_recharge(force: bool = False) -> dict[str, Any]:
@@ -425,7 +883,8 @@ def _qr_data_url(value: str) -> str:
 
 
 def _headers(cookie: str, referer: str = "https://www.bilibili.com") -> dict[str, str]:
-    return {"Cookie": cookie, "User-Agent": bilibili_service.user_agent, "Referer": referer, "Origin": "https://www.bilibili.com"}
+    origin = "https://live.bilibili.com" if "live.bilibili.com" in referer else "https://www.bilibili.com"
+    return {"Cookie": cookie, "User-Agent": bilibili_service.user_agent, "Referer": referer, "Origin": origin}
 
 
 def _csrf(cookie: str) -> str:

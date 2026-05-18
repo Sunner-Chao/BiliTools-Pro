@@ -24,6 +24,8 @@ interface ResourceTask {
   dayStock?: number | string;
   totalStock?: number | string;
   taskStatus?: string | number;
+  taskStatusLabel?: string;
+  stockSummary?: string;
   stockFetchedAt?: string;
   queryCode?: number;
   queryMessage?: string;
@@ -91,10 +93,17 @@ const TasksPage: React.FC = () => {
   };
 
   useEffect(() => {
-    loadGames();
-    loadResources();
-    loadTasks();
-    restoreFormValues();
+    const bootstrap = async () => {
+      await loadGames();
+      await loadResources();
+      restoreFormValues();
+      const restoredGame = form.getFieldValue('game');
+      if (restoredGame) {
+        await handleGameChange(restoredGame);
+      }
+      await loadTasks();
+    };
+    bootstrap();
     const timer = window.setInterval(loadTasks, 2000);
     return () => window.clearInterval(timer);
   }, []);
@@ -127,14 +136,23 @@ const TasksPage: React.FC = () => {
   const handleQueryStocks = async (selectedOnly = false) => {
     const game = form.getFieldValue('game');
     if (!game) { message.error('请先选择游戏'); return; }
-    const taskIds = selectedOnly ? selectedIds : resources.map((item) => item.id);
-    if (taskIds.length === 0) { message.error(selectedOnly ? '请先选择资源道具' : '当前游戏没有可查询资源'); return; }
+    let currentResources = resources;
+    if (!currentResources.length) {
+      const loaded = await window.api.tasks.gameTasks(game);
+      currentResources = loaded.tasks || [];
+      setResources(currentResources);
+    }
+    const taskIds = selectedOnly ? selectedIds : currentResources.map((item) => item.id);
+    if (selectedOnly && taskIds.length === 0) { message.error('请先选择资源道具'); return; }
     setStockLoading(true);
     try {
-      const result = await window.api.tasks.stocks(game, taskIds);
+      const result = await window.api.tasks.stocks(game, taskIds.length ? taskIds : undefined);
       if (result?.success) {
         const stockMap = new Map<string, ResourceTask>((result.tasks || []).map((item: ResourceTask) => [item.id, item]));
-        setResources((items) => items.map((item) => ({ ...item, ...(stockMap.get(item.id) || {}) })));
+        setResources((items) => {
+          if (!items.length) return result.tasks || [];
+          return items.map((item) => ({ ...item, ...(stockMap.get(item.id) || {}) }));
+        });
         const failed = (result.tasks || []).filter((item: ResourceTask) => item.queryError || item.queryMessage).length;
         message.success(failed ? `库存已更新，${failed} 个资源查询异常` : `库存已更新，共 ${result.tasks?.length || 0} 个资源`);
       } else {
@@ -309,7 +327,8 @@ const TasksPage: React.FC = () => {
                                 <Tag color="purple">总量 {formatStock(item.totalStock)}</Tag>
                               </>
                             ) : null}
-                            {item.taskStatus !== undefined ? <Tag color="gold">状态 {item.taskStatus}</Tag> : null}
+                            {item.taskStatus !== undefined ? <Tag color="gold">状态 {item.taskStatusLabel || item.taskStatus}</Tag> : null}
+                            {item.stockSummary ? <Tag color="cyan">{item.stockSummary}</Tag> : null}
                             {item.queryError || item.queryMessage ? <Tag color="red">{item.queryMessage || item.queryError}</Tag> : null}
                             <Tag>{item.id}</Tag>
                           </Space>

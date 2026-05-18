@@ -140,6 +140,18 @@ class TaskEngine:
             "tasks": results,
         }
 
+    @staticmethod
+    def _task_status_label(status: Any) -> str:
+        return {
+            0: "已完成任务",
+            2: "每日库存不足",
+            6: "已经领取过了",
+            7: "暂无领取资格",
+            8: "暂无领取资格",
+            10: "活动已过期-请更新配置",
+            11: "未到领取时间",
+        }.get(status, str(status) if status is not None else "未知")
+
     async def _run(self, task_id: str) -> None:
         task = self._tasks[task_id]
         config = task["config"]
@@ -316,6 +328,7 @@ class TaskEngine:
             task_data = data.get("data", {})
             reward_info = task_data.get("reward_info", {}) or {}
             stock_info = task_data.get("stock_info", {}) or {}
+            task_status = task_data.get("status") if task_data.get("status") is not None else task_data.get("task_status")
             return {
                 **item,
                 "activityId": task_data.get("act_id"),
@@ -324,7 +337,13 @@ class TaskEngine:
                 "awardName": reward_info.get("award_name") or item.get("awardName"),
                 "dayStock": stock_info.get("day_stock"),
                 "totalStock": stock_info.get("total_stock"),
-                "taskStatus": task_data.get("status") or task_data.get("task_status"),
+                "dayRemainNum": stock_info.get("day_remain_num"),
+                "totalRemainNum": stock_info.get("total_remain_num"),
+                "dayStockLimit": stock_info.get("day_stock_limit"),
+                "totalStockLimit": stock_info.get("total_stock_limit"),
+                "taskStatus": task_status,
+                "taskStatusLabel": self._task_status_label(task_status),
+                "stockSummary": f"每日库存: {stock_info.get('day_stock', 'N/A')}% | 总库存: {stock_info.get('total_stock', 'N/A')}%",
                 "wts": wts,
                 "wRid": w_rid,
                 "rawResponse": data,

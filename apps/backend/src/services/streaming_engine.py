@@ -1,5 +1,6 @@
 """Live and OBS-like ffmpeg streaming engine."""
 import asyncio
+import platform
 import shutil
 import subprocess
 from datetime import datetime
@@ -231,6 +232,51 @@ class StreamingEngine:
         except Exception as exc:
             self._log("error", f"关播失败: {exc}")
 
+    def _detect_gpu(self) -> str:
+        """Detect GPU encoder, matching the original bili_ffmpeg.py logic."""
+        try:
+            system_platform = platform.system()
+            if system_platform == "Linux":
+                try:
+                    subprocess.run(["nvidia-smi"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    self._log("info", "NVIDIA GPU detected")
+                    return "h264_nvenc"
+                except FileNotFoundError:
+                    pass
+                except subprocess.CalledProcessError:
+                    pass
+                try:
+                    result = subprocess.run("lspci | grep VGA", shell=True, stdout=subprocess.PIPE)
+                    if b"AMD" in result.stdout:
+                        self._log("info", "AMD GPU detected")
+                        return "h264_amf"
+                except Exception as e:
+                    self._log("error", f"Error checking AMD GPU: {e}")
+                try:
+                    subprocess.run(["./execute/ffmpeg.exe", "-hwaccels"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    self._log("info", "Intel Quick Sync detected")
+                    return "h264_qsv"
+                except FileNotFoundError:
+                    pass
+                except subprocess.CalledProcessError:
+                    pass
+            elif system_platform == "Windows":
+                try:
+                    subprocess.run(["nvidia-smi"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    self._log("info", "NVIDIA GPU detected")
+                    return "h264_nvenc"
+                except FileNotFoundError:
+                    self._log("info", "N卡未检测到，使用AMD编码器")
+                    return "h264_amf"
+                except subprocess.CalledProcessError:
+                    self._log("info", "N卡检测失败，使用AMD编码器")
+                    return "h264_amf"
+            self._log("warning", "未检测到可用GPU，使用CPU编码")
+            return "libx264"
+        except Exception as e:
+            self._log("error", f"GPU检测异常: {e}")
+            return "libx264"
+
     def _start_ffmpeg(self, video_path: str, rtmp_url: str, stream_key: str, config: dict[str, Any]) -> None:
         path = Path(video_path)
         if not path.exists():
@@ -239,23 +285,49 @@ class StreamingEngine:
         target = f"{rtmp_url.rstrip('/')}/{stream_key}" if stream_key else rtmp_url
         quality = config.get("quality", "low")
         bitrate = {"high": "8000k", "medium": "4500k", "low": "2200k"}.get(quality, "2200k")
-        command = [
-            ffmpeg_path,
-            "-re",
-            "-stream_loop",
-            "-1",
-            "-i",
-            str(path),
-            "-c:v",
-            "libx264" if config.get("cpuMode", True) else "h264_nvenc",
-            "-preset",
-            "veryfast",
-            "-b:v",
-            bitrate,
-            "-c:a",
-            "aac",
-            "-f",
-            "flv",
+        audio_bitrate = {"high": "128k", "medium": "64k", "low": "32k"}.get(quality, "32k")
+        is_cpu = config.get("cpuMode", True)
+        vcodec = "libx264" if is_cpu else self._detect_gpu()
+        self._log("info", f"使用编码器: {vcodec}")
+
+        # Build encoder-specific params matching legacy bili_ffmpeg.py
+        command = [ffmpeg_path, "-re", "-stream_loop", "-1", "-i", str(path)]
+
+        if vcodec == "h264_nvenc":
+            if quality == "high":
+                command += ["-c:v", "h264_nvenc", "-preset", "lossless", "-tune", "lossless", "-crf", "18"]
+            elif quality == "medium":
+                command += ["-c:v", "h264_nvenc", "-preset", "default", "-tune", "hq", "-crf", "23"]
+            else:
+                command += ["-c:v", "h264_nvenc", "-preset", "p1", "-tune", "ull", "-crf", "28"]
+        elif vcodec == "h264_amf":
+            if quality == "high":
+                command += ["-c:v", "h264_amf", "-usage", "lowlatency_high_quality", "-quality", "quality", "-rc", "cqp", "-qp_i", "18", "-qp_p", "18"]
+            elif quality == "medium":
+                command += ["-c:v", "h264_amf", "-usage", "transcoding", "-quality", "balanced", "-rc", "cqp", "-qp_i", "23", "-qp_p", "23"]
+            else:
+                command += ["-c:v", "h264_amf", "-usage", "transcoding", "-quality", "speed", "-rc", "cqp", "-qp_i", "28", "-qp_p", "28"]
+        elif vcodec == "h264_qsv":
+            if quality == "high":
+                command += ["-c:v", "h264_qsv", "-preset", "veryslow"]
+            elif quality == "medium":
+                command += ["-c:v", "h264_qsv", "-preset", "medium"]
+            else:
+                command += ["-c:v", "h264_qsv", "-preset", "veryfast"]
+        else:
+            # CPU libx264
+            if quality == "high":
+                command += ["-c:v", "libx264", "-preset", "veryslow", "-tune", "film", "-crf", "18"]
+            elif quality == "medium":
+                command += ["-c:v", "libx264", "-preset", "medium", "-tune", "fastdecode", "-crf", "23"]
+            else:
+                command += ["-c:v", "libx264", "-preset", "fast", "-tune", "fastdecode", "-crf", "28"]
+
+        command += [
+            "-b:v", bitrate,
+            "-c:a", "aac",
+            "-b:a", audio_bitrate,
+            "-f", "flv",
             target,
         ]
         self._log("info", "启动仿 OBS ffmpeg 推流")

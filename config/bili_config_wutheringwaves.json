@@ -126,8 +126,9 @@
         }
     ],
     "area_name":"鸣潮",
-    "live_task_ids":"6ERA4wloghvzvx00", 
-    "live2_task_ids":"6ERA4wloghvzuc00", 
+    "live_task_ids":"6ERA4wloghvzvx00",
+    "live2_task_ids":"6ERA4wloghvzuc00",
+    "watch_task_ids":"",
     "submit_task_ids":"",
     "area_v2":874
 }

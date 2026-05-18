@@ -325,7 +325,7 @@ class BilibiliService:
         """Load cookies from disk."""
         cookies_path = Path(config.cookies_dir) / "session.json"
         if cookies_path.exists():
-            payload = json.loads(cookies_path.read_text())
+            payload = json.loads(cookies_path.read_text(encoding="utf-8"))
             expires_at = payload.get("expires_at")
             if not expires_at:
                 valid_days = int(app_settings_service.get().get("credentialValidDays") or 30)
@@ -356,7 +356,7 @@ class BilibiliService:
         if not cookies_path.exists():
             return {"hasCredential": False}
         try:
-            payload = json.loads(cookies_path.read_text())
+            payload = json.loads(cookies_path.read_text(encoding="utf-8"))
             return {
                 "hasCredential": bool(payload.get("cookie")),
                 "savedAt": payload.get("saved_at") or datetime.fromtimestamp(cookies_path.stat().st_mtime).isoformat(timespec="seconds"),
@@ -371,7 +371,7 @@ class BilibiliService:
         if not cookies_path.exists():
             return
         try:
-            payload = json.loads(cookies_path.read_text())
+            payload = json.loads(cookies_path.read_text(encoding="utf-8"))
             if not payload.get("cookie"):
                 return
             now = datetime.now()

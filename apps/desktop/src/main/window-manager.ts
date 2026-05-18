@@ -40,8 +40,10 @@ export class WindowManager {
 
     this.createTray();
 
-    if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-      this.mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL']);
+    if ((is.dev || process.env.VITE_DEV_SERVER_URL) && process.env.ELECTRON_RENDERER_URL) {
+      this.mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
+    } else if (process.env.VITE_DEV_SERVER_URL) {
+      this.mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
     } else {
       this.mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
     }

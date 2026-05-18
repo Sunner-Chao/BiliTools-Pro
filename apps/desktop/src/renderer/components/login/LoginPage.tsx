@@ -1,10 +1,10 @@
 import React from 'react';
-import { Button, Tabs, Tooltip } from 'antd';
+import { Button, Tabs, Tooltip, message } from 'antd';
 import { QrcodeOutlined, KeyOutlined, BulbOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAppDispatch, useAppSelector } from '../../store/hooks';
 import { fetchAuthStatus, setAuthenticatedUser } from '../../store/slices/authSlice';
-import { setTheme } from '../../store/slices/uiSlice';
+import { setTheme, addNotification } from '../../store/slices/uiSlice';
 import QRLogin from './QRLogin';
 import CookieLogin from './CookieLogin';
 
@@ -15,6 +15,8 @@ const LoginPage: React.FC = () => {
   const handleLoginSuccess = async (user: any) => {
     if (user) {
       dispatch(setAuthenticatedUser(user));
+      dispatch(addNotification({ type: 'success', message: `登录成功，欢迎 ${user.name}` }));
+      message.success(`登录成功，欢迎 ${user.name}`);
     }
     await dispatch(fetchAuthStatus()).unwrap();
     navigate('/dashboard');

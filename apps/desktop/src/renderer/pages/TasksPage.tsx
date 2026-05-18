@@ -4,6 +4,8 @@ import { DeleteOutlined, PlayCircleOutlined, ReloadOutlined, StopOutlined } from
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { setTasks, addTask, startTask, stopTask, removeTask } from '../store/slices/tasksSlice';
 
+const TASKS_FORM_KEY = 'bilitools_tasks_form';
+
 interface GameOption {
   id: string;
   name: string;
@@ -59,10 +61,32 @@ const TasksPage: React.FC = () => {
     }
   };
 
+  // Save form values
+  const saveFormValues = () => {
+    try {
+      const values = form.getFieldsValue();
+      const toSave = { ...values, targetTime: values.targetTime?.toISOString() || undefined };
+      localStorage.setItem(TASKS_FORM_KEY, JSON.stringify(toSave));
+    } catch { /* ignore */ }
+  };
+
+  // Restore form values
+  const restoreFormValues = () => {
+    try {
+      const saved = localStorage.getItem(TASKS_FORM_KEY);
+      if (saved) {
+        const values = JSON.parse(saved);
+        if (values.targetTime) values.targetTime = new Date(values.targetTime);
+        form.setFieldsValue(values);
+      }
+    } catch { /* ignore */ }
+  };
+
   useEffect(() => {
     loadGames();
     loadResources();
     loadTasks();
+    restoreFormValues();
     const timer = window.setInterval(loadTasks, 2000);
     return () => window.clearInterval(timer);
   }, []);
@@ -70,6 +94,7 @@ const TasksPage: React.FC = () => {
   const handleGameChange = async (game: string) => {
     form.setFieldValue('game', game);
     setSelectedIds([]);
+    saveFormValues();
     const result = await window.api.tasks.gameTasks(game);
     setResources(result.tasks || []);
     const gameInfo = games.find((item) => item.id === game);
@@ -97,6 +122,7 @@ const TasksPage: React.FC = () => {
       const values = await form.validateFields();
       const selectedTasks = resources.filter((item) => selectedIds.includes(item.id));
       if (selectedTasks.length === 0) { message.error('请选择至少一个资源道具'); return; }
+      saveFormValues();
       const result = await window.api.tasks.create({
         type: 'grab_code',
         game: values.game,
@@ -186,12 +212,6 @@ const TasksPage: React.FC = () => {
       : `${minutes}:${String(secs).padStart(2, '0')}`;
   };
 
-  const logColumns = [
-    { title: '时间', dataIndex: 'time', key: 'time', width: 86, render: (value: string) => <Typography.Text style={{ color: 'var(--bt-text-disabled)', fontSize: 12 }}>{value}</Typography.Text> },
-    { title: '级别', dataIndex: 'level', key: 'level', width: 92, render: (value: string) => <Tag color={value === 'error' ? 'red' : value === 'warning' ? 'gold' : value === 'success' ? 'green' : 'blue'}>{value}</Tag> },
-    { title: '输出', dataIndex: 'message', key: 'message', render: (value: string) => <Typography.Text style={{ whiteSpace: 'pre-wrap', color: 'var(--bt-text-secondary)' }}>{value}</Typography.Text> },
-  ];
-
   return (
     <div>
       {/* Page header */}
@@ -208,7 +228,7 @@ const TasksPage: React.FC = () => {
           <Card title="选择资源道具 + 定时抢码">
             <Form form={form} layout="vertical" initialValues={{ interval: 0.3, holdtime: 30 }}>
               <Form.Item name="name" label="任务名称">
-                <Select placeholder="选择模板名称或留空" allowClear>
+                <Select placeholder="选择模板名称或留空" allowClear onChange={saveFormValues}>
                   <Select.Option value="定时抢码任务">定时抢码任务</Select.Option>
                   <Select.Option value="到点跳过验证码任务">到点跳过验证码任务</Select.Option>
                 </Select>
@@ -220,20 +240,20 @@ const TasksPage: React.FC = () => {
               </Form.Item>
               <Form.Item label="活动配置来源">
                 <Space.Compact style={{ width: '100%' }}>
-                  <Input value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder="B站 blackboard/era 活动页面 URL" />
+                  <Input value={sourceUrl} onChange={(event) => { setSourceUrl(event.target.value); saveFormValues(); }} placeholder="B站 blackboard/era 活动页面 URL" />
                   <Button onClick={handleRefreshConfig}>刷新配置</Button>
                 </Space.Compact>
               </Form.Item>
               {overview ? (
                 <Row gutter={8} style={{ marginBottom: 16 }}>
                   <Col span={8}><div className="bt-stat-card" style={{ padding: 12 }}><Statistic title="直播完成天数" value={overview.liveDays ?? '-'} /></div></Col>
+                  <Col span={8}><div className="bt-stat-card" style={{ padding: 12 }}><Statistic title="看播完成天数" value={overview.watchDays ?? '-'} /></div></Col>
                   <Col span={8}><div className="bt-stat-card" style={{ padding: 12 }}><Statistic title="投稿稿件总数" value={overview.submitCount ?? '-'} /></div></Col>
-                  <Col span={8}><div className="bt-stat-card" style={{ padding: 12 }}><Statistic title="活动倒计时" value={overview.countdownSeconds ? formatDuration(overview.countdownSeconds) : '-'} /></div></Col>
                 </Row>
               ) : null}
               <Form.Item label="资源道具">
                 <div style={{ maxHeight: 240, overflow: 'auto', border: '1px solid var(--bt-glass-border)', borderRadius: 12, padding: 12, background: 'color-mix(in srgb, var(--bt-bg-overlay) 55%, transparent)' }}>
-                  <Checkbox.Group value={selectedIds} onChange={(ids) => setSelectedIds(ids as string[])}>
+                  <Checkbox.Group value={selectedIds} onChange={(ids) => { setSelectedIds(ids as string[]); saveFormValues(); }}>
                     <Space direction="vertical">
                       {resources.map((item) => (
                         <Checkbox key={item.id} value={item.id}>
@@ -249,17 +269,17 @@ const TasksPage: React.FC = () => {
                 </div>
               </Form.Item>
               <Form.Item name="targetTime" label="目标时间">
-                <DatePicker showTime style={{ width: '100%' }} placeholder="不填则立即执行" />
+                <DatePicker showTime style={{ width: '100%' }} placeholder="不填则立即执行" onChange={saveFormValues} />
               </Form.Item>
               <Row gutter={12}>
                 <Col span={12}>
                   <Form.Item name="interval" label="抢码间隔(秒)">
-                    <InputNumber min={0.05} step={0.05} style={{ width: '100%' }} />
+                    <InputNumber min={0.05} step={0.05} style={{ width: '100%' }} onChange={saveFormValues} />
                   </Form.Item>
                 </Col>
                 <Col span={12}>
                   <Form.Item name="holdtime" label="自动停止(秒)">
-                    <InputNumber min={1} style={{ width: '100%' }} />
+                    <InputNumber min={1} style={{ width: '100%' }} onChange={saveFormValues} />
                   </Form.Item>
                 </Col>
               </Row>
@@ -271,23 +291,31 @@ const TasksPage: React.FC = () => {
           <Card title="任务列表" extra={<Button icon={<ReloadOutlined />} onClick={loadTasks}>刷新</Button>}>
             <Table rowKey="id" size="small" dataSource={tasks} columns={columns} pagination={{ pageSize: 5 }} />
           </Card>
-          <Card title="运行资源" style={{ marginTop: 16 }}>
-            <Space direction="vertical" size={4}>
-              <span style={{ color: 'var(--bt-text-secondary)' }}>config: <span style={{ color: 'var(--bt-text-primary)' }}>{resourceInfo?.paths?.config || '-'}</span></span>
-              <span style={{ color: 'var(--bt-text-secondary)' }}>cookies: <span style={{ color: 'var(--bt-text-primary)' }}>{resourceInfo?.paths?.cookies || '-'}</span></span>
-              <span style={{ color: 'var(--bt-text-secondary)' }}>execute: <span style={{ color: 'var(--bt-text-primary)' }}>{resourceInfo?.paths?.execute || '-'}</span></span>
-              <span style={{ color: 'var(--bt-text-secondary)' }}>可执行文件: <span style={{ color: 'var(--bt-text-primary)' }}>{(resourceInfo?.executables || []).map((item: any) => item.name).join(', ') || '-'}</span></span>
-            </Space>
-          </Card>
           <Card title={activeTask ? `执行日志 - ${activeTask.config?.name || activeTask.id}` : '执行日志'} style={{ marginTop: 16 }}>
-            <Table
-              rowKey={(_, index) => `${activeTask?.id || 'log'}-${index}`}
-              size="small"
-              columns={logColumns}
-              dataSource={(activeTask as any)?.logs || []}
-              pagination={{ pageSize: 8, size: 'small' }}
-              locale={{ emptyText: '暂无日志' }}
-            />
+            {/* Log window */}
+            <div
+              style={{
+                height: 300,
+                overflowY: 'auto',
+                background: 'color-mix(in srgb, var(--bt-bg-overlay) 55%, transparent)',
+                border: '1px solid var(--bt-glass-border)',
+                borderRadius: 12,
+                padding: '8px 12px',
+                fontFamily: 'monospace',
+                fontSize: 12,
+              }}
+            >
+              {(!((activeTask as any)?.logs?.length)) && (
+                <div style={{ color: 'var(--bt-text-disabled)', textAlign: 'center', padding: 24 }}>暂无日志</div>
+              )}
+              {((activeTask as any)?.logs || []).map((log: any, idx: number) => (
+                <div key={`task-log-${activeTask?.id}-${idx}`} style={{ display: 'flex', gap: 8, padding: '3px 0', borderBottom: '1px solid color-mix(in srgb, var(--bt-glass-border) 50%, transparent)' }}>
+                  <span style={{ color: 'var(--bt-text-disabled)', flexShrink: 0, width: 64 }}>{log.time}</span>
+                  <Tag color={log.level === 'error' ? 'red' : log.level === 'warning' ? 'gold' : log.level === 'success' ? 'green' : 'blue'} style={{ margin: 0, flexShrink: 0, minWidth: 56, textAlign: 'center' }}>{log.level}</Tag>
+                  <span style={{ color: log.level === 'error' ? '#ff4d4f' : log.level === 'warning' ? '#faad14' : 'var(--bt-text-secondary)', whiteSpace: 'pre-wrap' }}>{log.message}</span>
+                </div>
+              ))}
+            </div>
           </Card>
         </Col>
       </Row>

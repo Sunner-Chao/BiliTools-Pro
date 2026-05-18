@@ -4,6 +4,7 @@ import os
 import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs
 
 import httpx
 from .http_client import create_client
@@ -166,10 +167,16 @@ class GameConfigService:
         page_data = self._extract_eva_page_data(html)
         task_items: list[dict[str, Any]] = []
         self._collect_task_items(page_data, task_items)
+        totalv2_task_ids = self._extract_totalv2_task_ids(html)
 
         tasks: dict[str, dict[str, str]] = {}
         live_task_id = fallback.get("live_task_ids", "")
+        watch_task_id = fallback.get("watch_task_ids", "")
         submit_task_id = fallback.get("submit_task_ids", "")
+        if totalv2_task_ids:
+            live_task_id = totalv2_task_ids[0]
+            if len(totalv2_task_ids) > 1:
+                watch_task_id = totalv2_task_ids[1]
         for item in task_items:
             task_name = str(item.get("taskName") or item.get("name") or "").strip()
             task_id = str(item.get("taskId") or "").strip()
@@ -191,6 +198,8 @@ class GameConfigService:
                 }
                 if not live_task_id and "开播" in task_name:
                     live_task_id = task_id
+                if not watch_task_id and "看播" in task_name:
+                    watch_task_id = task_id
             for checkpoint in checkpoints:
                 checkpoint_task_id = str(checkpoint.get("ztasksid") or "").strip()
                 checkpoint_award = str(checkpoint.get("awardname") or "").strip()
@@ -216,9 +225,11 @@ class GameConfigService:
             "TASKS": [tasks],
             "area_name": fallback.get("area_name", ""),
             "live_task_ids": live_task_id,
+            "watch_task_ids": watch_task_id,
             "submit_task_ids": submit_task_id,
             "area_v2": fallback.get("area_v2", 0),
             "activity_id": activity_id,
+            "task_web_location": fallback.get("task_web_location", "888.145296"),
         }
 
     @staticmethod
@@ -258,6 +269,29 @@ class GameConfigService:
             return json.loads(html[start:end])
         except json.JSONDecodeError:
             return {}
+
+    @staticmethod
+    def _extract_totalv2_task_ids(html: str) -> list[str]:
+        normalized = html.replace("\\u0026", "&").replace("&amp;", "&")
+        task_ids: list[str] = []
+        for match in re.finditer(
+            r"https://api\.bilibili\.com/x/task/totalv2\?([^\"'<>\\\s]+)",
+            normalized,
+        ):
+            values = parse_qs(match.group(1)).get("task_ids") or []
+            task_id = values[0].strip() if values else ""
+            if task_id and task_id not in task_ids:
+                task_ids.append(task_id)
+
+        if len(task_ids) < 2:
+            for match in re.finditer(
+                r"totalv2[^\"'<>\\\s]{0,300}?task_ids=([A-Za-z0-9_-]+)",
+                normalized,
+            ):
+                task_id = match.group(1).strip()
+                if task_id and task_id not in task_ids:
+                    task_ids.append(task_id)
+        return task_ids
 
     def _collect_task_items(self, value: Any, found: list[dict[str, Any]]) -> None:
         if isinstance(value, dict):

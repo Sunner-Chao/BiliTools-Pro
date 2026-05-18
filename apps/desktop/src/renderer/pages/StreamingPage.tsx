@@ -1,9 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { Button, Card, Col, DatePicker, Divider, Form, Input, InputNumber, message, Row, Select, Space, Switch, Table, Tag, Typography } from 'antd';
-import { FolderOpenOutlined, ReloadOutlined, StopOutlined, VideoCameraOutlined } from '@ant-design/icons';
+import React, { useEffect, useRef, useState } from 'react';
+import { Button, Card, Col, DatePicker, Divider, Form, Input, InputNumber, message, Row, Select, Space, Switch, Tag, Typography } from 'antd';
+import { CheckCircleOutlined, FolderOpenOutlined, LoadingOutlined, ReloadOutlined, StopOutlined, VideoCameraOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useAppDispatch, useAppSelector } from '../store/hooks';
 import { startStreaming as startStreamAction, stopStreaming as stopStreamAction } from '../store/slices/streamingSlice';
+
+const STREAMING_FORM_KEY = 'bilitools_streaming_form';
 
 const StreamingPage: React.FC = () => {
   const dispatch = useAppDispatch();
@@ -12,14 +14,40 @@ const StreamingPage: React.FC = () => {
   const [form] = Form.useForm();
   const [status, setStatus] = useState<any>({ logs: [] });
   const [loading, setLoading] = useState(false);
+  const [videoLoading, setVideoLoading] = useState(false);
+  const logEndRef = useRef<HTMLDivElement>(null);
 
   const loadStatus = async () => {
     const result = await window.api.streaming.getStatus();
     setStatus(result || {});
   };
 
+  // Save form values to localStorage
+  const saveFormValues = () => {
+    try {
+      const values = form.getFieldsValue();
+      const toSave = { ...values, targetTime: values.targetTime?.toISOString() || undefined };
+      localStorage.setItem(STREAMING_FORM_KEY, JSON.stringify(toSave));
+    } catch { /* ignore */ }
+  };
+
+  // Restore form values from localStorage
+  const restoreFormValues = () => {
+    try {
+      const saved = localStorage.getItem(STREAMING_FORM_KEY);
+      if (saved) {
+        const values = JSON.parse(saved);
+        if (values.targetTime) values.targetTime = dayjs(values.targetTime);
+        form.setFieldsValue(values);
+        return true;
+      }
+    } catch { /* ignore */ }
+    return false;
+  };
+
   useEffect(() => {
-    if (user?.roomId) { form.setFieldValue('roomId', String(user.roomId)); }
+    const restored = restoreFormValues();
+    if (!restored && user?.roomId) { form.setFieldValue('roomId', String(user.roomId)); }
     loadStatus();
     const timer = window.setInterval(loadStatus, 1500);
     return () => window.clearInterval(timer);
@@ -38,6 +66,7 @@ const StreamingPage: React.FC = () => {
     setLoading(true);
     try {
       const values = await form.validateFields();
+      saveFormValues();
       const result = await window.api.streaming.start({ ...values, targetTime: values.targetTime?.toISOString() });
       if (result.success) { dispatch(startStreamAction(values)); message.success('推流任务已启动'); await loadStatus(); }
       else { message.error(result.error || '启动失败'); }
@@ -50,19 +79,18 @@ const StreamingPage: React.FC = () => {
   };
 
   const handleSelectVideo = async () => {
-    const result = await window.api.system.selectVideoFile();
-    if (!result?.canceled && result.filePath) { form.setFieldValue('videoPath', result.filePath); }
+    setVideoLoading(true);
+    try {
+      const result = await window.api.system.selectVideoFile();
+      if (!result?.canceled && result.filePath) { form.setFieldValue('videoPath', result.filePath); saveFormValues(); }
+    } finally { setVideoLoading(false); }
   };
 
   const setQuickStart = (seconds: number) => { form.setFieldValue('targetTime', dayjs().add(seconds, 'second')); };
 
   const isStreaming = status.isStreaming || streaming.isStreaming;
 
-  const logColumns = [
-    { title: '时间', dataIndex: 'time', key: 'time', width: 86, render: (value: string) => <Typography.Text style={{ color: 'var(--bt-text-disabled)', fontSize: 12 }}>{value}</Typography.Text> },
-    { title: '级别', dataIndex: 'level', key: 'level', width: 92, render: (value: string) => <Tag color={value === 'error' ? 'red' : value === 'warning' ? 'gold' : value === 'success' ? 'green' : 'blue'}>{value}</Tag> },
-    { title: '输出', dataIndex: 'message', key: 'message', render: (value: string) => <Typography.Text style={{ whiteSpace: 'pre-wrap', color: 'var(--bt-text-secondary)' }}>{value}</Typography.Text> },
-  ];
+  const levelColor = (value: string) => value === 'error' ? '#ff4d4f' : value === 'warning' ? '#faad14' : value === 'success' ? '#52c41a' : '#1890ff';
 
   return (
     <div>
@@ -86,16 +114,16 @@ const StreamingPage: React.FC = () => {
           <Card title="推流配置">
             <Form form={form} layout="vertical" initialValues={{ mode: 'obs', quality: 'low', cpuMode: true }}>
               <Form.Item name="mode" label="推流模式">
-                <Select>
+                <Select onChange={saveFormValues}>
                   <Select.Option value="obs">仿 OBS 推流</Select.Option>
                   <Select.Option value="bili-live">B站开播 + 自动推流</Select.Option>
                 </Select>
               </Form.Item>
               <Form.Item name="roomId" label="直播间号" rules={[{ required: true, message: '请输入直播间号' }]}>
-                <Input placeholder="B站直播间号" />
+                <Input placeholder="B站直播间号" onChange={saveFormValues} />
               </Form.Item>
               <Form.Item name="game" label="游戏分区">
-                <Select allowClear placeholder="用于 B站开播模式">
+                <Select allowClear placeholder="用于 B站开播模式" onChange={saveFormValues}>
                   <Select.Option value="genshin">原神</Select.Option>
                   <Select.Option value="starrail">崩坏：星穹铁道</Select.Option>
                   <Select.Option value="zzz">绝区零</Select.Option>
@@ -103,33 +131,36 @@ const StreamingPage: React.FC = () => {
                 </Select>
               </Form.Item>
               <Form.Item name="rtmpUrl" label="RTMP服务器地址">
-                <Input placeholder="仿 OBS 模式填写，例如 rtmp://host/live" />
+                <Input placeholder="仿 OBS 模式填写，例如 rtmp://host/live" onChange={saveFormValues} />
               </Form.Item>
               <Form.Item name="streamKey" label="推流密钥">
-                <Input.Password placeholder="仿 OBS 模式填写" />
+                <Input.Password placeholder="仿 OBS 模式填写" onChange={saveFormValues} />
               </Form.Item>
-              <Form.Item name="videoPath" label="视频文件路径">
-                <Space.Compact style={{ width: '100%' }}>
-                  <Input placeholder="/path/to/video.mp4" />
-                  <Button icon={<FolderOpenOutlined />} onClick={handleSelectVideo}>浏览</Button>
-                </Space.Compact>
+              <Form.Item label="视频文件路径">
+                <Input
+                  value={form.getFieldValue('videoPath') || ''}
+                  onChange={(e) => { form.setFieldValue('videoPath', e.target.value); saveFormValues(); }}
+                  placeholder="/path/to/video.mp4"
+                  suffix={videoLoading ? <LoadingOutlined style={{ color: '#1890ff' }} /> : form.getFieldValue('videoPath') ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> : null}
+                  addonAfter={<Button type="text" size="small" icon={<FolderOpenOutlined />} onClick={handleSelectVideo} loading={videoLoading} style={{ margin: '-4px -8px' }}>浏览</Button>}
+                />
               </Form.Item>
               <Form.Item name="ffmpegPath" label="ffmpeg路径">
-                <Input placeholder="默认使用系统 ffmpeg" />
+                <Input placeholder="默认使用系统 ffmpeg" onChange={saveFormValues} />
               </Form.Item>
               <Form.Item name="targetTime" label="定时开始">
-                <DatePicker showTime style={{ width: '100%' }} placeholder="不填则立即推流" />
+                <DatePicker showTime style={{ width: '100%' }} placeholder="不填则立即推流" onChange={saveFormValues} />
               </Form.Item>
               <Space style={{ marginTop: -12, marginBottom: 16 }} wrap>
-                <Button size="small" onClick={() => setQuickStart(10)}>10秒后</Button>
-                <Button size="small" onClick={() => setQuickStart(60)}>1分钟后</Button>
-                <Button size="small" onClick={() => setQuickStart(300)}>5分钟后</Button>
-                <Button size="small" onClick={() => form.setFieldValue('targetTime', undefined)}>立即</Button>
+                <Button size="small" onClick={() => { setQuickStart(10); saveFormValues(); }}>10秒后</Button>
+                <Button size="small" onClick={() => { setQuickStart(60); saveFormValues(); }}>1分钟后</Button>
+                <Button size="small" onClick={() => { setQuickStart(300); saveFormValues(); }}>5分钟后</Button>
+                <Button size="small" onClick={() => { form.setFieldValue('targetTime', undefined); saveFormValues(); }}>立即</Button>
               </Space>
               <Row gutter={12}>
                 <Col span={12}>
                   <Form.Item name="quality" label="画质">
-                    <Select>
+                    <Select onChange={saveFormValues}>
                       <Select.Option value="high">高质量</Select.Option>
                       <Select.Option value="medium">中质量</Select.Option>
                       <Select.Option value="low">低质量</Select.Option>
@@ -138,12 +169,12 @@ const StreamingPage: React.FC = () => {
                 </Col>
                 <Col span={12}>
                   <Form.Item name="duration" label="定时关播(秒)">
-                    <InputNumber min={0} style={{ width: '100%' }} placeholder="暂不自动关播" />
+                    <InputNumber min={0} style={{ width: '100%' }} placeholder="暂不自动关播" onChange={saveFormValues} />
                   </Form.Item>
                 </Col>
               </Row>
               <Form.Item name="cpuMode" label="CPU推流" valuePropName="checked">
-                <Switch />
+                <Switch onChange={saveFormValues} />
               </Form.Item>
               <Divider />
               {isStreaming ? (
@@ -177,14 +208,31 @@ const StreamingPage: React.FC = () => {
                 <span style={{ color: 'var(--bt-text-primary)', fontWeight: 500, fontSize: 12 }}>{status.rtmpUrl || '-'}</span>
               </div>
               <Divider style={{ margin: '4px 0' }} />
-              <Table
-                rowKey={(_, index) => `stream-log-${index}`}
-                size="small"
-                columns={logColumns}
-                dataSource={status.logs || []}
-                pagination={{ pageSize: 8, size: 'small' }}
-                locale={{ emptyText: '暂无日志' }}
-              />
+              {/* Log window */}
+              <div
+                style={{
+                  height: 340,
+                  overflowY: 'auto',
+                  background: 'color-mix(in srgb, var(--bt-bg-overlay) 55%, transparent)',
+                  border: '1px solid var(--bt-glass-border)',
+                  borderRadius: 12,
+                  padding: '8px 12px',
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                }}
+              >
+                {(status.logs || []).length === 0 && (
+                  <div style={{ color: 'var(--bt-text-disabled)', textAlign: 'center', padding: 24 }}>暂无日志</div>
+                )}
+                {(status.logs || []).map((log: any, idx: number) => (
+                  <div key={`stream-log-${idx}`} style={{ display: 'flex', gap: 8, padding: '3px 0', borderBottom: '1px solid color-mix(in srgb, var(--bt-glass-border) 50%, transparent)' }}>
+                    <span style={{ color: 'var(--bt-text-disabled)', flexShrink: 0, width: 64 }}>{log.time}</span>
+                    <Tag color={log.level === 'error' ? 'red' : log.level === 'warning' ? 'gold' : log.level === 'success' ? 'green' : 'blue'} style={{ margin: 0, flexShrink: 0, minWidth: 56, textAlign: 'center' }}>{log.level}</Tag>
+                    <span style={{ color: log.level === 'error' ? '#ff4d4f' : log.level === 'warning' ? '#faad14' : 'var(--bt-text-secondary)', whiteSpace: 'pre-wrap' }}>{log.message}</span>
+                  </div>
+                ))}
+                <div ref={logEndRef} />
+              </div>
             </Space>
           </Card>
         </Col>

@@ -20,15 +20,10 @@ const QRLogin: React.FC<QRLoginProps> = ({ onSuccess }) => {
     setStatus('pending');
     try {
       const result = await window.api.auth.loginByQR();
-      if (result.success) {
-        setQrUrl(result.qrUrl);
-        setQrKey(result.qrKey);
-        setStatus('pending');
-        setMessage('请使用哔哩哔哩APP扫描二维码');
-      } else {
-        setStatus('error');
-        setMessage(result.error || '获取二维码失败');
-      }
+      setQrUrl(result.qrUrl);
+      setQrKey(result.qrKey);
+      setStatus('pending');
+      setMessage('请使用哔哩哔哩APP扫描二维码');
     } catch {
       setStatus('error');
       setMessage('获取二维码失败');

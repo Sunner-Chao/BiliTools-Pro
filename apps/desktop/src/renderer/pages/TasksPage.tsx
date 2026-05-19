@@ -77,10 +77,10 @@ const TasksPage: React.FC = () => {
 
   const loadOverview = async (game?: string, url?: string) => {
     if (!game) return;
-    const result = await window.api.tasks.overview(game, url || undefined);
-    if (result?.success) {
+    try {
+      const result = await window.api.tasks.overview(game, url || undefined);
       setOverview(result);
-    }
+    } catch { /* ignore */ }
   };
 
   // Save form values
@@ -140,14 +140,14 @@ const TasksPage: React.FC = () => {
   const handleRefreshConfig = async () => {
     const game = form.getFieldValue('game');
     if (!game) { message.error('请先选择游戏'); return; }
-    const result = await window.api.tasks.refreshGameConfig(game, sourceUrl || undefined);
-    if (result.success) {
+    try {
+      const result = await window.api.tasks.refreshGameConfig(game, sourceUrl || undefined);
       message.success(`配置已刷新，任务数 ${result.taskCount}`);
       await loadGames();
       await handleGameChange(game);
       await loadOverview(game, result.sourceUrl || sourceUrl);
-    } else {
-      message.error(result.error || '刷新失败');
+    } catch (error: any) {
+      message.error(error?.error || error?.message || '刷新失败');
     }
   };
 
@@ -165,17 +165,13 @@ const TasksPage: React.FC = () => {
     setStockLoading(true);
     try {
       const result = await window.api.tasks.stocks(game, taskIds.length ? taskIds : undefined);
-      if (result?.success) {
-        const stockMap = new Map<string, ResourceTask>((result.tasks || []).map((item: ResourceTask) => [item.id, item]));
-        setResources((items) => {
-          if (!items.length) return result.tasks || [];
-          return items.map((item) => ({ ...item, ...(stockMap.get(item.id) || {}) }));
-        });
-        const failed = (result.tasks || []).filter((item: ResourceTask) => item.queryError || item.queryMessage).length;
-        message.success(failed ? `库存已更新，${failed} 个资源查询异常` : `库存已更新，共 ${result.tasks?.length || 0} 个资源`);
-      } else {
-        message.error(result?.error || '库存查询失败');
-      }
+      const stockMap = new Map<string, ResourceTask>((result.tasks || []).map((item: ResourceTask) => [item.id, item]));
+      setResources((items) => {
+        if (!items.length) return result.tasks || [];
+        return items.map((item) => ({ ...item, ...(stockMap.get(item.id) || {}) }));
+      });
+      const failed = (result.tasks || []).filter((item: ResourceTask) => item.queryError || item.queryMessage).length;
+      message.success(failed ? `库存已更新，${failed} 个资源查询异常` : `库存已更新，共 ${result.tasks?.length || 0} 个资源`);
     } catch {
       message.error('库存查询失败');
     } finally {
@@ -199,42 +195,38 @@ const TasksPage: React.FC = () => {
         holdtime: values.holdtime,
         selectedTasks,
       });
-      if (result.success) {
-        dispatch(addTask(result.task));
-        setActiveTaskId(result.task.id);
-        const started = await window.api.tasks.start(result.task.id);
-        if (started.success) {
-          dispatch(startTask(result.task.id));
-          message.success('定时抢码任务已启动');
-        } else {
-          message.error(started.error || '启动失败');
-        }
-      }
-    } catch {
-      message.error('创建失败，请检查参数');
+      dispatch(addTask(result.task));
+      setActiveTaskId(result.task.id);
+      const started = await window.api.tasks.start(result.task.id);
+      dispatch(startTask(result.task.id));
+      message.success('定时抢码任务已启动');
+    } catch (error: any) {
+      message.error(error?.error || error?.message || '创建失败，请检查参数');
     } finally {
       setLoading(false);
     }
   };
 
   const handleStop = async (taskId: string) => {
-    const result = await window.api.tasks.stop(taskId);
-    if (result.success) {
+    try {
+      await window.api.tasks.stop(taskId);
       dispatch(stopTask(taskId));
       message.success('任务已停止');
       await loadTasks();
+    } catch (error: any) {
+      message.error(error?.error || error?.message || '停止失败');
     }
   };
 
   const handleDelete = async (taskId: string) => {
-    const result = await window.api.tasks.delete(taskId);
-    if (result.success) {
+    try {
+      await window.api.tasks.delete(taskId);
       dispatch(removeTask(taskId));
       if (activeTaskId === taskId) setActiveTaskId(null);
       message.success('任务已删除');
       await loadTasks();
-    } else {
-      message.error(result.error || '删除失败');
+    } catch (error: any) {
+      message.error(error?.error || error?.message || '删除失败');
     }
   };
 

@@ -61,11 +61,12 @@ const DailyTasksPage: React.FC = () => {
     try {
       const values = await form.validateFields();
       const result = await action(values);
-      if (result?.success) { message.success(okText); }
-      else { message.warning(result?.response?.message || result?.error || '接口返回失败'); }
+      message.success(okText);
       await loadStatus();
-    } catch (error: any) { message.error(error?.message || '操作失败'); }
-    finally { setLoading(false); }
+    } catch (error: any) {
+      const errMsg = error?.response?.message || error?.error || error?.message || '操作失败';
+      message.warning(errMsg);
+    } finally { setLoading(false); }
   };
 
   const generateQR = async (slot: number) => {
@@ -73,8 +74,10 @@ const DailyTasksPage: React.FC = () => {
     setQrMessage('');
     try {
       const result = await window.api.daily.audienceQR(slot);
-      if (result?.success) { setQrInfo(result); }
+      if (result?.qrUrl) { setQrInfo(result); setQrMessage(''); }
       else { message.error(result?.error || '二维码生成失败'); }
+    } catch (error: any) {
+      message.error(error?.message || '二维码生成失败');
     } finally { setLoading(false); }
   };
 
@@ -83,11 +86,13 @@ const DailyTasksPage: React.FC = () => {
     setLoading(true);
     try {
       const values = await cookieForm.validateFields();
-      const result = await window.api.daily.saveAudienceCookie(activeSlot, values.cookie);
-      result?.success ? message.success('观众凭证已保存') : message.error(result?.error || '保存失败');
+      await window.api.daily.saveAudienceCookie(activeSlot, values.cookie);
+      message.success('观众凭证已保存');
       setActiveSlot(null);
       cookieForm.resetFields();
       await loadStatus();
+    } catch (error: any) {
+      message.error(error?.error || error?.message || '保存失败');
     } finally { setLoading(false); }
   };
 
@@ -95,8 +100,10 @@ const DailyTasksPage: React.FC = () => {
     setLoading(true);
     try {
       const result = await window.api.daily.wallet(slot);
-      result?.success ? message.success(`钱包余额 ${result.wallet?.goldText || '-'}`) : message.warning(result?.wallet?.error || '余额查询失败');
+      message.success(`钱包余额 ${result.wallet?.goldText || '-'}`);
       await loadStatus();
+    } catch (error: any) {
+      message.warning(error?.wallet?.error || error?.message || '余额查询失败');
     } finally { setLoading(false); }
   };
 
@@ -106,11 +113,18 @@ const DailyTasksPage: React.FC = () => {
     try {
       const roomId = form.getFieldValue('roomId') || '';
       const result = await window.api.daily.rechargePanel(slot, roomId);
-      if (result?.success) { setRechargeInfo({ ...result, slot }); }
-      else if (result?.panel) {
+      if (result?.panel) {
         setRechargeInfo({ ...result, slot });
-        message.warning(result?.error || '充值面板部分接口返回失败，请查看详情');
-      } else { message.warning(result?.error || '充值面板获取失败'); }
+      } else {
+        message.warning(result?.error || '充值面板获取失败');
+      }
+    } catch (error: any) {
+      if (error?.panel) {
+        setRechargeInfo({ ...error, slot });
+        message.warning(error?.error || '充值面板部分接口返回失败，请查看详情');
+      } else {
+        message.warning(error?.error || error?.message || '充值面板获取失败');
+      }
     } finally { setLoading(false); }
   };
 
@@ -126,13 +140,11 @@ const DailyTasksPage: React.FC = () => {
         setLoading(true);
         try {
           const result = await window.api.daily.createRechargeOrder(rechargeInfo.slot, roomId, option, true);
-          if (result?.success) {
-            setRechargeOrder(result.order);
-            message.success('充值二维码订单已创建');
-          } else {
-            message.error(result?.error || result?.order?.message || '创建订单失败');
-          }
+          setRechargeOrder(result.order);
+          message.success('充值二维码订单已创建');
           await loadStatus();
+        } catch (error: any) {
+          message.error(error?.error || error?.order?.message || error?.message || '创建订单失败');
         } finally {
           setLoading(false);
         }
@@ -158,13 +170,11 @@ const DailyTasksPage: React.FC = () => {
     setLoading(true);
     try {
       const result = await window.api.daily.queryRechargeOrder(rechargeInfo.slot, rechargeOrder.orderId);
-      if (result?.success) {
-        setRechargeOrder((current: any) => ({ ...current, status: result.order?.status, statusText: result.order?.statusText, query: result.order }));
-        message.info(result.order?.statusText || '订单状态已更新');
-      } else {
-        message.warning(result?.order?.message || '订单查询失败');
-      }
+      setRechargeOrder((current: any) => ({ ...current, status: result.order?.status, statusText: result.order?.statusText, query: result.order }));
+      message.info(result.order?.statusText || '订单状态已更新');
       await loadStatus();
+    } catch (error: any) {
+      message.warning(error?.order?.message || error?.message || '订单查询失败');
     } finally {
       setLoading(false);
     }

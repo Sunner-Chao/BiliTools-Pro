@@ -23,15 +23,11 @@ const CookieLogin: React.FC<CookieLoginProps> = ({ onSuccess }) => {
     setLoading(true);
     try {
       const result = await window.api.auth.loginByCookie(cookie);
-      if (result.success) {
-        message.success('登录成功');
-        onSuccess(result.user);
-      } else {
-        message.error(result.error || '登录失败');
-      }
-    } catch {
+      message.success('登录成功');
+      onSuccess(result.user);
+    } catch (error: any) {
       setError('登录失败，请检查Cookie格式');
-      message.error('登录失败');
+      message.error(error?.error || error?.message || '登录失败');
     } finally {
       setLoading(false);
     }

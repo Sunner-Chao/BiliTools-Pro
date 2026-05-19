@@ -18,7 +18,7 @@ const StatusBar: React.FC = () => {
           任务: <span className="bt-status-count">{activeTasks}</span>/{tasks.length}
         </span>
         {isStreaming && (
-          <span className="bt-badge bt-badge-error">
+          <span className="bt-badge bt-badge-running" aria-live="polite">
             <span className="bt-pulse" />
             推流中
           </span>

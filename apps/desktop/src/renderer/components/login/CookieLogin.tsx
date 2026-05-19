@@ -11,12 +11,15 @@ interface CookieLoginProps {
 const CookieLogin: React.FC<CookieLoginProps> = ({ onSuccess }) => {
   const [cookie, setCookie] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const handleLogin = async () => {
     if (!cookie.trim()) {
+      setError('请输入Cookie');
       message.error('请输入Cookie');
       return;
     }
+    setError('');
     setLoading(true);
     try {
       const result = await window.api.auth.loginByCookie(cookie);
@@ -27,6 +30,7 @@ const CookieLogin: React.FC<CookieLoginProps> = ({ onSuccess }) => {
         message.error(result.error || '登录失败');
       }
     } catch {
+      setError('登录失败，请检查Cookie格式');
       message.error('登录失败');
     } finally {
       setLoading(false);
@@ -53,9 +57,16 @@ const CookieLogin: React.FC<CookieLoginProps> = ({ onSuccess }) => {
         rows={4}
         placeholder="SESSDATA=...; bili_jct=...; DedeUserID=..."
         value={cookie}
-        onChange={(e) => setCookie(e.target.value)}
-        style={{ marginBottom: 16 }}
+        onChange={(e) => { setCookie(e.target.value); if (error) setError(''); }}
+        className={error ? 'bt-input-error' : ''}
+        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleLogin(); } }}
+        style={{ marginBottom: error ? 4 : 16 }}
       />
+      {error && (
+        <div style={{ color: 'var(--bt-error)', fontSize: 12, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 4, animation: 'bt-fade-in 200ms ease' }}>
+          <span>⚠</span> {error}
+        </div>
+      )}
       <Button
         type="primary"
         icon={<LoginOutlined />}

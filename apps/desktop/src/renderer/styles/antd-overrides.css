@@ -190,6 +190,13 @@
   box-shadow: 0 0 0 3px var(--bt-primary-ring) !important;
 }
 .ant-input::placeholder { color: var(--bt-text-disabled) !important; }
+/* Error state with shake */
+.ant-input.bt-input-error,
+textarea.ant-input.bt-input-error {
+  border-color: var(--bt-error) !important;
+  box-shadow: 0 0 0 3px var(--bt-error-subtle) !important;
+  animation: bt-shake var(--bt-duration-slow) var(--bt-ease-standard);
+}
 .ant-form-item-label > label {
   color: var(--bt-text-secondary) !important;
   font-size: var(--bt-text-sm) !important;
@@ -338,19 +345,29 @@
   background: var(--bt-input-bg) !important;
   border-color: var(--bt-border) !important;
   border-radius: 4px !important;
-  transition: all var(--bt-transition-normal) !important;
+  transition: all var(--bt-transition-spring) !important;
 }
 .ant-checkbox-checked .ant-checkbox-inner {
   background: var(--bt-primary) !important;
   border-color: var(--bt-primary) !important;
+  animation: bt-success-bounce var(--bt-duration-normal) var(--bt-ease-spring);
+}
+.ant-checkbox-checked .ant-checkbox-inner::after {
+  transition: transform var(--bt-transition-spring) !important;
+  border-color: #fff !important;
 }
 
 /* ── Switch ── */
 .ant-switch {
   background: var(--bt-border-bright) !important;
-  transition: background var(--bt-transition-normal) !important;
+  transition: all var(--bt-transition-normal) var(--bt-ease-standard) !important;
 }
-.ant-switch-checked { background: var(--bt-primary) !important; }
+.ant-switch-checked {
+  background: var(--bt-primary) !important;
+}
+.ant-switch-handle::before {
+  transition: all var(--bt-transition-normal) var(--bt-ease-spring) !important;
+}
 
 /* ── Divider ── */
 .ant-divider { border-color: var(--bt-glass-border) !important; }

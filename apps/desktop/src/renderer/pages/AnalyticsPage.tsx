@@ -4,8 +4,17 @@ import { CheckCircleOutlined, KeyOutlined, PlayCircleOutlined, ReloadOutlined, T
 
 const AnalyticsPage: React.FC = () => {
   const [data, setData] = useState<any>({ games: [], recent: [], streaming: {} });
+  const [pageState, setPageState] = useState<'loading' | 'error' | 'success'>('loading');
 
-  const load = async () => { setData(await window.api.analytics.summary()); };
+  const load = async () => {
+    try {
+      const result = await window.api.analytics.summary();
+      setData(result);
+      setPageState('success');
+    } catch {
+      if (pageState === 'loading') setPageState('error');
+    }
+  };
 
   useEffect(() => {
     load();
@@ -26,6 +35,38 @@ const AnalyticsPage: React.FC = () => {
     { title: '接口结果', value: data.resultCount || 0, suffix: '条' },
     { title: '兑换码记录', value: data.cdkeyCount || 0, suffix: '个', icon: <KeyOutlined /> },
   ];
+
+  if (pageState === 'loading') {
+    return (
+      <div className="bt-page-skeleton" role="status" aria-label="加载统计数据">
+        <div className="bt-page-header">
+          <div className="bt-page-header-bar" aria-hidden="true" />
+          <div>
+            <div className="bt-skeleton" style={{ width: 160, height: 28, borderRadius: 6 }} />
+            <div className="bt-skeleton" style={{ width: 100, height: 16, marginTop: 4, borderRadius: 4 }} />
+          </div>
+        </div>
+        <div className="bt-skeleton-stats">
+          {[0, 1, 2, 3].map(i => <div key={i} className={`bt-skeleton-stat bt-skeleton bt-stagger-${i + 1}`} />)}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div className="bt-skeleton bt-stagger-3" style={{ height: 200, borderRadius: 20 }} />
+          <div className="bt-skeleton bt-stagger-4" style={{ height: 200, borderRadius: 20 }} />
+        </div>
+      </div>
+    );
+  }
+
+  if (pageState === 'error') {
+    return (
+      <div className="bt-empty-state" role="alert">
+        <ReloadOutlined className="bt-empty-state-icon" aria-hidden="true" />
+        <p className="bt-empty-state-text">数据加载失败</p>
+        <p className="bt-empty-state-hint">请检查后端服务是否正常运行</p>
+        <Button type="primary" icon={<ReloadOutlined />} onClick={() => { setPageState('loading'); load(); }} style={{ marginTop: 12 }}>重试</Button>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -74,7 +115,7 @@ const AnalyticsPage: React.FC = () => {
       </div>
 
       <Row gutter={16}>
-        <Col span={12}>
+        <Col xs={24} md={12}>
           <Card title={
             <div className="bt-section-heading">
               <div className="bt-section-heading-bar" style={{ background: 'var(--bt-primary)' }} />
@@ -96,7 +137,7 @@ const AnalyticsPage: React.FC = () => {
             />
           </Card>
         </Col>
-        <Col span={12}>
+        <Col xs={24} md={12}>
           <Card title={
             <div className="bt-section-heading">
               <div className="bt-section-heading-bar" style={{ background: 'var(--bt-info)' }} />
@@ -120,7 +161,7 @@ const AnalyticsPage: React.FC = () => {
         </Col>
       </Row>
       <Row gutter={16} style={{ marginTop: 16 }}>
-        <Col span={12}>
+        <Col xs={24} md={12}>
           <Card title={
             <div className="bt-section-heading">
               <div className="bt-section-heading-bar" style={{ background: 'var(--bt-success)' }} />
@@ -137,7 +178,7 @@ const AnalyticsPage: React.FC = () => {
             </Descriptions>
           </Card>
         </Col>
-        <Col span={12}>
+        <Col xs={24} md={12}>
           <Card title={
             <div className="bt-section-heading">
               <div className="bt-section-heading-bar" style={{ background: 'var(--bt-accent)' }} />

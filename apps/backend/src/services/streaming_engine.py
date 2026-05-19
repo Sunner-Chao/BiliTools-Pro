@@ -12,6 +12,7 @@ from .http_client import create_client
 
 from .bilibili import bilibili_service
 from .game_config import game_config_service
+from src.core.response import ErrorCode, ok, fail
 
 
 class StreamingEngine:
@@ -50,11 +51,11 @@ class StreamingEngine:
 
     async def start(self, config: dict[str, Any]) -> dict[str, Any]:
         if self.state["isStreaming"]:
-            return {"success": False, "error": "Already streaming"}
+            return fail("Already streaming", ErrorCode.CONFLICT)
 
         room_id = str(config.get("roomId") or "").strip()
         if not room_id:
-            return {"success": False, "error": "请输入直播间号"}
+            return fail("请输入直播间号", ErrorCode.VALIDATION_ERROR, error_field="roomId")
 
         mode = config.get("mode", "obs")
         self.state.update(
@@ -79,11 +80,11 @@ class StreamingEngine:
                     self.state["status"] = "waiting"
                     self._log("info", f"定时推流已设置，将在 {target.strftime('%Y-%m-%d %H:%M:%S')} 开始")
                     self._scheduled_start_task = asyncio.create_task(self._start_after(seconds, config))
-                    return {"success": True, "state": self.status()}
+                    return ok({"state": self.status()})
             return await self._start_now(config)
         except Exception as exc:
             await self.stop()
-            return {"success": False, "error": str(exc)}
+            return fail(str(exc))
 
     async def _start_now(self, config: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -92,11 +93,11 @@ class StreamingEngine:
             stream_key = str(config.get("streamKey") or "")
             if mode == "bili-live":
                 live_result = await self._start_bilibili_live(config)
-                if not live_result["success"]:
+                if not live_result.get("ok", live_result.get("success")):
                     await self.stop()
                     return live_result
-                rtmp_url = live_result["rtmpUrl"]
-                stream_key = live_result["streamKey"]
+                rtmp_url = live_result.get("data", live_result).get("rtmpUrl", rtmp_url)
+                stream_key = live_result.get("data", live_result).get("streamKey", stream_key)
 
             self.state["rtmpUrl"] = rtmp_url
             video_path = str(config.get("videoPath") or "").strip()
@@ -111,10 +112,10 @@ class StreamingEngine:
             if duration > 0:
                 self._log("warning", f"已设置 {int(duration)} 秒后自动关播")
                 self._auto_stop_task = asyncio.create_task(self._auto_stop(duration))
-            return {"success": True, "state": self.status()}
+            return ok({"state": self.status()})
         except Exception as exc:
             await self.stop()
-            return {"success": False, "error": str(exc)}
+            return fail(str(exc))
 
     async def stop(self) -> dict[str, Any]:
         if self._scheduled_start_task:
@@ -144,7 +145,7 @@ class StreamingEngine:
         self._ffmpeg_config = None
         self._ffmpeg_restarts = 0
         self._log("warning", "推流已停止")
-        return {"success": True, "state": self.status()}
+        return ok({"state": self.status()})
 
     def status(self) -> dict[str, Any]:
         return self.state.copy()
@@ -185,10 +186,10 @@ class StreamingEngine:
 
     async def _start_bilibili_live(self, config: dict[str, Any]) -> dict[str, Any]:
         if not await bilibili_service.is_logged_in():
-            return {"success": False, "error": "请先登录 B 站账号"}
+            return fail("请先登录 B 站账号", ErrorCode.UNAUTHORIZED)
         csrf = bilibili_service.csrf_token
         if not csrf:
-            return {"success": False, "error": "当前 Cookie 缺少 bili_jct"}
+            return fail("当前 Cookie 缺少 bili_jct", ErrorCode.UNAUTHORIZED)
         data = {
             "room_id": config["roomId"],
             "platform": "pc",
@@ -212,12 +213,12 @@ class StreamingEngine:
             )
         payload = response.json()
         if payload.get("code") != 0:
-            return {"success": False, "error": payload.get("message", "开播失败")}
+            return fail(payload.get("message", "开播失败"), ErrorCode.UPSTREAM_ERROR)
         rtmp = payload.get("data", {}).get("rtmp", {})
         addr = str(rtmp.get("addr", "")).split("?")[0].rstrip("/")
         code = rtmp.get("code", "")
         self._log("success", f"开播成功，分区 {data['area_v2']}")
-        return {"success": True, "rtmpUrl": addr, "streamKey": code}
+        return ok({"rtmpUrl": addr, "streamKey": code})
 
     async def _stop_bilibili_live(self, room_id: str) -> None:
         csrf = bilibili_service.csrf_token

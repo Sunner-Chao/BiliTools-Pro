@@ -1,8 +1,9 @@
 /* ═══════════════════════════════════════════════════════════════════
-   BiliTools Pro — Unified Animations
-   
+   BiliTools Pro — Unified Animations v3.0
+
    All animations use token-based easing curves.
    Duration token: --bt-duration-*, Easing: --bt-ease-*
+   Micro-interactions: buttons, inputs, switches, toasts.
    ═══════════════════════════════════════════════════════════════════ */
 
 /* ── Keyframes ── */
@@ -93,6 +94,77 @@
   50% { border-color: transparent; }
 }
 
+/* ── Toast slide-in from top ── */
+@keyframes bt-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-16px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes bt-toast-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.96);
+  }
+}
+
+/* ── Success checkmark bounce ── */
+@keyframes bt-success-bounce {
+  0% { transform: scale(0); }
+  50% { transform: scale(1.2); }
+  70% { transform: scale(0.9); }
+  100% { transform: scale(1); }
+}
+
+/* ── Error icon rotation ── */
+@keyframes bt-error-rotate {
+  0% { transform: rotate(0deg) scale(0.8); }
+  50% { transform: rotate(10deg) scale(1.05); }
+  70% { transform: rotate(-5deg) scale(0.95); }
+  100% { transform: rotate(0deg) scale(1); }
+}
+
+/* ── Switch thumb slide with spring ── */
+@keyframes bt-switch-on {
+  0% { transform: translateX(0); }
+  50% { transform: translateX(calc(100% + 4px)) scale(1.05); }
+  100% { transform: translateX(calc(100% + 4px)) scale(1); }
+}
+
+/* ── Checkbox check draw ── */
+@keyframes bt-check-stroke {
+  0% { stroke-dashoffset: 20; }
+  100% { stroke-dashoffset: 0; }
+}
+
+/* ── Ripple ── */
+@keyframes bt-ripple {
+  from {
+    transform: scale(0);
+    opacity: 0.5;
+  }
+  to {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}
+
+/* ── Count-up number ── */
+@keyframes bt-count-pop {
+  0% { transform: translateY(8px); opacity: 0; }
+  60% { transform: translateY(-2px); }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
 /* ── Utility Classes ── */
 .bt-animate-slide-up {
   animation: bt-slide-up var(--bt-duration-slow) var(--bt-ease-enter) forwards;
@@ -118,6 +190,18 @@
   animation: bt-shake var(--bt-duration-slow) var(--bt-ease-standard);
 }
 
+.bt-animate-toast-in {
+  animation: bt-toast-in var(--bt-duration-slow) var(--bt-ease-spring) forwards;
+}
+
+.bt-animate-success {
+  animation: bt-success-bounce var(--bt-duration-slow) var(--bt-ease-spring) forwards;
+}
+
+.bt-animate-error {
+  animation: bt-error-rotate var(--bt-duration-slow) var(--bt-ease-spring) forwards;
+}
+
 /* ── Stagger delay helpers (for lists) ── */
 .bt-stagger-1 { animation-delay: 50ms; }
 .bt-stagger-2 { animation-delay: 100ms; }
@@ -125,6 +209,8 @@
 .bt-stagger-4 { animation-delay: 200ms; }
 .bt-stagger-5 { animation-delay: 250ms; }
 .bt-stagger-6 { animation-delay: 300ms; }
+.bt-stagger-7 { animation-delay: 350ms; }
+.bt-stagger-8 { animation-delay: 400ms; }
 
 /* ── Pulse dot ── */
 .bt-pulse {

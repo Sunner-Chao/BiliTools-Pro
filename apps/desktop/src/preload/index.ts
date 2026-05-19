@@ -1,64 +1,111 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
+// ── Standardized IPC envelope unwrapper ───────────────────────────────────────
+// Backend now returns: {id, result: {ok, data, error, code, errorField?}}
+// We unwrap here so renderer code sees clean data/errors.
+
+interface IPCEnvelope {
+  ok: boolean;
+  data: unknown;
+  error: string | null;
+  code: number;
+  errorField?: string;
+}
+
+class IPCError extends Error {
+  code: number;
+  errorField?: string;
+  constructor(msg: string, code: number, errorField?: string) {
+    super(msg);
+    this.name = 'IPCError';
+    this.code = code;
+    this.errorField = errorField;
+  }
+}
+
+function unwrapIPC(raw: any): any {
+  // Main-process handlers usually return the backend envelope directly:
+  // { ok, data, error, code, errorField? }
+  if (raw && typeof raw === 'object' && 'ok' in raw && 'data' in raw) {
+    const envelope: IPCEnvelope = raw;
+    if (envelope.ok) return envelope.data;
+    const err = new IPCError(envelope.error || 'Unknown error', envelope.code, envelope.errorField);
+    throw err;
+  }
+
+  // Handle legacy format (already unwrapped or plain data)
+  if (raw && typeof raw === 'object' && !('id' in raw && 'result' in raw)) {
+    return raw;
+  }
+  const envelope: IPCEnvelope = raw?.result ?? { ok: false, data: null, error: 'Invalid IPC response', code: 500 };
+  if (envelope.ok) return envelope.data;
+  const err = new IPCError(envelope.error || 'Unknown error', envelope.code, envelope.errorField);
+  throw err;
+}
+
+function ipcInvoke(channel: string, ...args: unknown[]) {
+  return ipcRenderer.invoke(channel, ...args).then(unwrapIPC);
+}
+
 const api = {
   window: {
-    minimize: () => ipcRenderer.invoke('window:minimize'),
-    maximize: () => ipcRenderer.invoke('window:maximize'),
-    close: () => ipcRenderer.invoke('window:close'),
+    minimize: () => ipcInvoke('window:minimize'),
+    maximize: () => ipcInvoke('window:maximize'),
+    close: () => ipcInvoke('window:close'),
   },
   system: {
-    getPlatform: () => ipcRenderer.invoke('system:getPlatform'),
-    getVersion: () => ipcRenderer.invoke('system:getVersion'),
-    openExternal: (url: string) => ipcRenderer.invoke('system:openExternal', url),
-    selectVideoFile: () => ipcRenderer.invoke('system:selectVideoFile'),
+    getPlatform: () => ipcInvoke('system:getPlatform'),
+    getVersion: () => ipcInvoke('system:getVersion'),
+    openExternal: (url: string) => ipcInvoke('system:openExternal', url),
+    selectVideoFile: () => ipcInvoke('system:selectVideoFile'),
   },
   auth: {
-    loginByQR: () => ipcRenderer.invoke('auth:loginByQR'),
-    checkQRStatus: (qrKey: string) => ipcRenderer.invoke('auth:checkQRStatus', qrKey),
-    loginByCookie: (cookie: string) => ipcRenderer.invoke('auth:loginByCookie', cookie),
-    logout: () => ipcRenderer.invoke('auth:logout'),
-    getStatus: () => ipcRenderer.invoke('auth:getStatus'),
+    loginByQR: () => ipcInvoke('auth:loginByQR'),
+    checkQRStatus: (qrKey: string) => ipcInvoke('auth:checkQRStatus', qrKey),
+    loginByCookie: (cookie: string) => ipcInvoke('auth:loginByCookie', cookie),
+    logout: () => ipcInvoke('auth:logout'),
+    getStatus: () => ipcInvoke('auth:getStatus'),
   },
   tasks: {
-    create: (config: unknown) => ipcRenderer.invoke('tasks:create', config),
-    start: (taskId: string) => ipcRenderer.invoke('tasks:start', taskId),
-    stop: (taskId: string) => ipcRenderer.invoke('tasks:stop', taskId),
-    delete: (taskId: string) => ipcRenderer.invoke('tasks:delete', taskId),
-    list: () => ipcRenderer.invoke('tasks:list'),
-    get: (taskId: string) => ipcRenderer.invoke('tasks:get', taskId),
-    games: () => ipcRenderer.invoke('tasks:games'),
-    gameTasks: (game: string) => ipcRenderer.invoke('tasks:gameTasks', game),
-    refreshGameConfig: (game: string, url?: string) => ipcRenderer.invoke('tasks:refreshGameConfig', game, url),
-    resources: () => ipcRenderer.invoke('tasks:resources'),
-    overview: (game: string, sourceUrl?: string) => ipcRenderer.invoke('tasks:overview', game, sourceUrl),
-    stocks: (game: string, taskIds?: string[]) => ipcRenderer.invoke('tasks:stocks', game, taskIds),
+    create: (config: unknown) => ipcInvoke('tasks:create', config),
+    start: (taskId: string) => ipcInvoke('tasks:start', taskId),
+    stop: (taskId: string) => ipcInvoke('tasks:stop', taskId),
+    delete: (taskId: string) => ipcInvoke('tasks:delete', taskId),
+    list: () => ipcInvoke('tasks:list'),
+    get: (taskId: string) => ipcInvoke('tasks:get', taskId),
+    games: () => ipcInvoke('tasks:games'),
+    gameTasks: (game: string) => ipcInvoke('tasks:gameTasks', game),
+    refreshGameConfig: (game: string, url?: string) => ipcInvoke('tasks:refreshGameConfig', game, url),
+    resources: () => ipcInvoke('tasks:resources'),
+    overview: (game: string, sourceUrl?: string) => ipcInvoke('tasks:overview', game, sourceUrl),
+    stocks: (game: string, taskIds?: string[]) => ipcInvoke('tasks:stocks', game, taskIds),
   },
   streaming: {
-    start: (config: unknown) => ipcRenderer.invoke('streaming:start', config),
-    stop: () => ipcRenderer.invoke('streaming:stop'),
-    getStatus: () => ipcRenderer.invoke('streaming:getStatus'),
+    start: (config: unknown) => ipcInvoke('streaming:start', config),
+    stop: () => ipcInvoke('streaming:stop'),
+    getStatus: () => ipcInvoke('streaming:getStatus'),
   },
   daily: {
-    status: () => ipcRenderer.invoke('daily:status'),
-    audienceQR: (slot: number) => ipcRenderer.invoke('daily:audienceQR', slot),
-    checkAudienceQRStatus: (qrKey: string) => ipcRenderer.invoke('daily:checkAudienceQRStatus', qrKey),
-    saveAudienceCookie: (slot: number, cookie: string) => ipcRenderer.invoke('daily:saveAudienceCookie', slot, cookie),
-    validateAudience: (slot: number) => ipcRenderer.invoke('daily:validateAudience', slot),
-    wallet: (slot: number) => ipcRenderer.invoke('daily:wallet', slot),
-    rechargeQR: (slot?: number) => ipcRenderer.invoke('daily:rechargeQR', slot),
-    rechargePanel: (slot: number, roomId?: string) => ipcRenderer.invoke('daily:rechargePanel', slot, roomId),
-    createRechargeOrder: (slot: number, roomId: string, option: unknown, confirm?: boolean) => ipcRenderer.invoke('daily:createRechargeOrder', slot, roomId, option, confirm),
-    queryRechargeOrder: (slot: number, orderId: string) => ipcRenderer.invoke('daily:queryRechargeOrder', slot, orderId),
-    enterLiveRoom: (slot: number, roomId: string, durationMinutes?: number, mode?: string) => ipcRenderer.invoke('daily:enterLiveRoom', slot, roomId, durationMinutes, mode),
-    sendDanmaku: (slot: number, roomId: string, message?: string) => ipcRenderer.invoke('daily:sendDanmaku', slot, roomId, message),
-    sendGift: (slot: number, roomId: string) => ipcRenderer.invoke('daily:sendGift', slot, roomId),
+    status: () => ipcInvoke('daily:status'),
+    audienceQR: (slot: number) => ipcInvoke('daily:audienceQR', slot),
+    checkAudienceQRStatus: (qrKey: string) => ipcInvoke('daily:checkAudienceQRStatus', qrKey),
+    saveAudienceCookie: (slot: number, cookie: string) => ipcInvoke('daily:saveAudienceCookie', slot, cookie),
+    validateAudience: (slot: number) => ipcInvoke('daily:validateAudience', slot),
+    wallet: (slot: number) => ipcInvoke('daily:wallet', slot),
+    rechargeQR: (slot?: number) => ipcInvoke('daily:rechargeQR', slot),
+    rechargePanel: (slot: number, roomId?: string) => ipcInvoke('daily:rechargePanel', slot, roomId),
+    createRechargeOrder: (slot: number, roomId: string, option: unknown, confirm?: boolean) => ipcInvoke('daily:createRechargeOrder', slot, roomId, option, confirm),
+    queryRechargeOrder: (slot: number, orderId: string) => ipcInvoke('daily:queryRechargeOrder', slot, orderId),
+    enterLiveRoom: (slot: number, roomId: string, durationMinutes?: number, mode?: string) => ipcInvoke('daily:enterLiveRoom', slot, roomId, durationMinutes, mode),
+    sendDanmaku: (slot: number, roomId: string, message?: string) => ipcInvoke('daily:sendDanmaku', slot, roomId, message),
+    sendGift: (slot: number, roomId: string) => ipcInvoke('daily:sendGift', slot, roomId),
   },
   analytics: {
-    summary: () => ipcRenderer.invoke('analytics:summary'),
+    summary: () => ipcInvoke('analytics:summary'),
   },
   settings: {
-    get: () => ipcRenderer.invoke('settings:get'),
-    save: (values: unknown) => ipcRenderer.invoke('settings:save', values),
+    get: () => ipcInvoke('settings:get'),
+    save: (values: unknown) => ipcInvoke('settings:save', values),
   },
   on: (channel: string, callback: (...args: unknown[]) => void) => {
     const subscription = (_event: unknown, ...args: unknown[]) => callback(...args);

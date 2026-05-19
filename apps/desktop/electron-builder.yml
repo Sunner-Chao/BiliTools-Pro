@@ -3,16 +3,10 @@ productName: BiliTools-Pro
 directories:
   buildResources: build
 files:
-  - dist/**/*
-  - '!node_modules/**/*'
-  - '!dist/win-unpacked/**/*'
-  - '!dist/linux-unpacked/**/*'
-  - '!dist/__appImage-x64/**/*'
-  - '!dist/*.AppImage'
-  - '!dist/*.zip'
-  - '!dist/win-unpacked'
-  - '!dist/linux-unpacked'
-  - '!dist/__appImage-x64'
+  - package.json
+  - dist/main/**/*
+  - dist/preload/**/*
+  - dist/renderer/**/*
 extraResources:
   - from: "build/backend-win"
     to: "backend"

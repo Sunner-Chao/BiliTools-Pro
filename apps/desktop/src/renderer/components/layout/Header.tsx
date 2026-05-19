@@ -68,13 +68,13 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
           </button>
         </Tooltip>
         <Badge count={notifications.length} size="small">
-          <BellOutlined
-            className="bt-header-bell"
+          <button
+            className="bt-header-icon-btn"
             onClick={() => setDrawerOpen(true)}
-            role="button"
-            tabIndex={0}
-            aria-label={`通知 (${notifications.length})`}
-          />
+            aria-label={`通知 (${notifications.length}条)`}
+          >
+            <BellOutlined />
+          </button>
         </Badge>
       </div>
       <Dropdown menu={{ items: userMenuItems }} placement="bottomRight" trigger={['click']}>

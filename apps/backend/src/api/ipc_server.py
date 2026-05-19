@@ -6,6 +6,7 @@ from typing_extensions import TypeAlias
 from loguru import logger
 
 from ..core.config import config
+from ..core.response import ErrorCode, fail, wrap
 
 
 IPC_HOST = config.ipc_host
@@ -104,21 +105,40 @@ class IPCServer:
         return ''.join(result)
 
     async def _dispatch(self, message: Dict[str, Any]) -> Dict[str, Any]:
-        """Dispatch an IPC message to the appropriate handler."""
+        """Dispatch an IPC message to the appropriate handler.
+
+        Every response is wrapped in the standard envelope::
+
+            {"id": ..., "result": {"ok": bool, "data": ..., "error": ..., "code": int}}
+        """
         method = message.get("method")
         params = message.get("params", {})
         msg_id = message.get("id")
 
         if method not in self._handlers:
-            return {"id": msg_id, "error": f"Unknown method: {method}"}
+            envelope = fail(f"Unknown method: {method}", ErrorCode.NOT_FOUND)
+            return {"id": msg_id, "result": envelope}
 
         try:
             snake_params = {self._to_snake_case(k): v for k, v in params.items()}
             result = await self._handlers[method](**snake_params)
-            return {"id": msg_id, "result": result}
+            return {"id": msg_id, "result": wrap(result)}
+        except ValueError as e:
+            logger.warning(f"IPC validation error for {method}: {e}")
+            envelope = fail(str(e), ErrorCode.VALIDATION_ERROR)
+            return {"id": msg_id, "result": envelope}
+        except RuntimeError as e:
+            msg = str(e)
+            code = ErrorCode.CONFLICT if "already" in msg.lower() else ErrorCode.BAD_REQUEST
+            if "confirm" in msg.lower():
+                code = ErrorCode.REQUIRES_CONFIRM
+            logger.warning(f"IPC runtime error for {method}: {e}")
+            envelope = fail(msg, code)
+            return {"id": msg_id, "result": envelope}
         except Exception as e:
             logger.error(f"IPC handler error for {method}: {e}")
-            return {"id": msg_id, "error": str(e)}
+            envelope = fail(str(e), ErrorCode.INTERNAL_ERROR)
+            return {"id": msg_id, "result": envelope}
 
 
 ipc_server = IPCServer()

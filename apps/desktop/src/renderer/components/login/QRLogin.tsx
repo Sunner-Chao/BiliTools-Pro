@@ -61,13 +61,9 @@ const QRLogin: React.FC<QRLoginProps> = ({ onSuccess }) => {
   if (loading) {
     return (
       <div style={{ textAlign: 'center', padding: '40px 0' }}>
-        <div style={{
-          width: 40, height: 40, margin: '0 auto 16px',
-          border: '3px solid var(--bt-border)', borderTopColor: 'var(--bt-primary)',
-          borderRadius: '50%', animation: 'bt-spin 0.8s linear infinite',
-        }} />
+        <div className="bt-spin" style={{ width: 40, height: 40, margin: '0 auto 16px', border: '3px solid var(--bt-border)', borderTopColor: 'var(--bt-primary)', borderRadius: '50%' }} />
         <Text style={{ color: 'var(--bt-text-secondary)' }}>获取二维码中...</Text>
-        <style>{`@keyframes bt-spin { to { transform: rotate(360deg); } }`}</style>
+        {/* bt-spin keyframe is defined in animations.css — no inline needed */}
       </div>
     );
   }

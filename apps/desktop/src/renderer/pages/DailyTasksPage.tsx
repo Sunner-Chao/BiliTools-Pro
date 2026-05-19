@@ -15,10 +15,20 @@ const DailyTasksPage: React.FC = () => {
   const [rechargeOrder, setRechargeOrder] = useState<any>(null);
   const [customRechargeAmount, setCustomRechargeAmount] = useState<number | null>(60);
   const [loading, setLoading] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
   const loadStatus = async () => {
-    const result = await window.api.daily.status();
-    setStatus(result || { slots: [], logs: [] });
+    try {
+      const result = await window.api.daily.status();
+      setStatus(result || { slots: [], logs: [] });
+      if (loadError) setLoadError('');
+    } catch {
+      setLoadError('加载失败，请检查后端服务');
+      if (pageLoading) setPageLoading(false);
+    } finally {
+      if (pageLoading) setPageLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -166,6 +176,28 @@ const DailyTasksPage: React.FC = () => {
     { title: '输出', dataIndex: 'message', key: 'message', render: (value: string) => <Typography.Text style={{ whiteSpace: 'pre-wrap', color: 'var(--bt-text-secondary)' }}>{value}</Typography.Text> },
   ];
 
+  if (pageLoading) {
+    return (
+      <div className="bt-page-skeleton" role="status" aria-label="加载每日任务">
+        <div className="bt-page-header">
+          <div className="bt-page-header-bar" aria-hidden="true" />
+          <div>
+            <div className="bt-skeleton" style={{ width: 180, height: 28, borderRadius: 6 }} />
+            <div className="bt-skeleton" style={{ width: 240, height: 16, marginTop: 4, borderRadius: 4 }} />
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 16 }}>
+          <div className="bt-skeleton bt-stagger-1" style={{ height: 220, borderRadius: 20 }} />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            {[0, 1, 2, 3].map(i => (
+              <div key={i} className={`bt-skeleton bt-stagger-${i + 2}`} style={{ height: 180, borderRadius: 20 }} />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       {/* Page header */}
@@ -177,8 +209,11 @@ const DailyTasksPage: React.FC = () => {
         </div>
       </div>
 
-      <Row gutter={16}>
-        <Col span={8}>
+      {loadError && (
+        <Alert type="error" message={loadError} closable showIcon onClose={() => setLoadError('')} style={{ marginBottom: 16 }} action={<Button size="small" onClick={() => { setLoadError(''); loadStatus(); }}>重试</Button>} />
+      )}
+      <Row gutter={[16, 16]}>
+        <Col xs={24} md={8}>
           <Card title="每日任务系统">
             <Form form={form} layout="vertical">
               <Form.Item name="roomId" label="直播间号" rules={[{ required: true, message: '请输入直播间号' }]}>
@@ -202,10 +237,10 @@ const DailyTasksPage: React.FC = () => {
             </Form>
           </Card>
         </Col>
-        <Col span={16}>
+        <Col xs={24} md={16}>
           <Row gutter={[12, 12]}>
             {(status.slots || []).map((slot: any) => (
-              <Col span={12} key={slot.slot}>
+              <Col xs={24} sm={12} key={slot.slot}>
                 <Card
                   size="small"
                   title={<span style={{ color: 'var(--bt-text-primary)' }}>观众 {slot.slot}</span>}

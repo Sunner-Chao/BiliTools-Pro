@@ -6,22 +6,33 @@ const SettingsPage: React.FC = () => {
   const [form] = Form.useForm();
   const [state, setState] = useState<any>({ settings: {}, resources: {}, games: [], backend: {}, credential: {} });
   const [loading, setLoading] = useState(false);
+  const [pageLoading, setPageLoading] = useState(true);
+  const [saveLoading, setSaveLoading] = useState(false);
 
   const load = async () => {
-    const result = await window.api.settings.get();
-    setState(result || {});
-    form.setFieldsValue(result?.settings || {});
+    try {
+      const result = await window.api.settings.get();
+      setState(result || {});
+      form.setFieldsValue(result?.settings || {});
+    } catch {
+      message.error('加载设置失败');
+    } finally {
+      setPageLoading(false);
+    }
   };
 
   useEffect(() => { load(); }, []);
 
   const save = async () => {
-    setLoading(true);
+    setSaveLoading(true);
     try {
       const values = await form.validateFields();
       const result = await window.api.settings.save(values);
       if (result?.success) { message.success('设置已保存'); await load(); }
-    } finally { setLoading(false); }
+      else { message.error(result?.error || '保存失败'); }
+    } catch {
+      message.error('保存失败，请检查参数');
+    } finally { setSaveLoading(false); }
   };
 
   const gameColumns = [
@@ -62,6 +73,21 @@ const SettingsPage: React.FC = () => {
     return `${(value / 1024 / 1024).toFixed(1)} MB`;
   };
 
+  if (pageLoading) {
+    return (
+      <div className="bt-page-skeleton" role="status" aria-label="加载设置">
+        <div className="bt-page-header">
+          <div className="bt-page-header-bar" aria-hidden="true" />
+          <div>
+            <div className="bt-skeleton" style={{ width: 100, height: 28, borderRadius: 6 }} />
+            <div className="bt-skeleton" style={{ width: 160, height: 16, marginTop: 4, borderRadius: 4 }} />
+          </div>
+        </div>
+        <div className="bt-skeleton bt-stagger-1" style={{ height: 300, borderRadius: 20 }} />
+      </div>
+    );
+  }
+
   return (
     <div>
       {/* Page header */}
@@ -96,7 +122,7 @@ const SettingsPage: React.FC = () => {
                     <InputNumber min={1} max={180} style={{ width: 240 }} />
                   </Form.Item>
                   <p style={{ color: 'var(--bt-text-secondary)', fontSize: 13, lineHeight: 1.6 }}>打开软件时会先读取本地 Cookie；只要仍在这个窗口内且 B 站接口验证有效，就不会要求重新扫码。</p>
-                  <Button type="primary" icon={<SaveOutlined />} loading={loading} onClick={save}>保存凭证策略</Button>
+                  <Button type="primary" icon={<SaveOutlined />} loading={saveLoading} onClick={save}>保存凭证策略</Button>
                 </Card>
               ),
             },
@@ -170,7 +196,7 @@ const SettingsPage: React.FC = () => {
                   <Form.Item name={['proxy', 'port']} label="代理端口">
                     <InputNumber min={1} max={65535} style={{ width: 240 }} />
                   </Form.Item>
-                  <Button type="primary" icon={<SaveOutlined />} loading={loading} onClick={save}>保存网络设置</Button>
+                  <Button type="primary" icon={<SaveOutlined />} loading={saveLoading} onClick={save}>保存网络设置</Button>
                 </Card>
               ),
             },

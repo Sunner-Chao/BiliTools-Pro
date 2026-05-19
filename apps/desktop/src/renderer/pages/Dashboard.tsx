@@ -79,10 +79,18 @@ const Dashboard: React.FC = () => {
 
   useEffect(() => {
     setState('loading');
-    // Simulate initial load
-    const timer = setTimeout(() => setState('success'), 600);
-    return () => clearTimeout(timer);
+    // Transition to success/empty based on actual data availability
+    const timeout = setTimeout(() => {
+      setState(tasks.length > 0 ? 'success' : 'empty');
+    }, 2000);
+    return () => clearTimeout(timeout);
   }, []);
+  // Reactive transition: when tasks arrive, promote to success
+  useEffect(() => {
+    if (state === 'loading' && tasks.length > 0) {
+      setState('success');
+    }
+  }, [tasks, state]);
 
   const runningTasks = tasks.filter((t) => t.status === 'running');
   const completedTasks = tasks.filter((t) => t.status === 'completed');
@@ -124,7 +132,7 @@ const Dashboard: React.FC = () => {
       {/* Stats row — skeleton or real data */}
       <Row gutter={16} style={{ marginBottom: 24 }} role="list" aria-label="统计数据卡片">
         {stats.map((stat, i) => (
-          <Col span={6} key={stat.title} role="listitem">
+          <Col xs={24} sm={12} md={6} key={stat.title} role="listitem">
             <StatCard {...stat} />
           </Col>
         ))}
@@ -132,7 +140,7 @@ const Dashboard: React.FC = () => {
 
       <Row gutter={16} role="region" aria-label="任务与推流详情">
         {/* Running tasks */}
-        <Col span={12}>
+        <Col xs={24} md={12}>
           <div className="bt-glass-card" style={{ padding: 20 }}>
             <div className="bt-section-heading" role="heading" aria-level={3}>
               <div className="bt-section-heading-bar" style={{ background: 'var(--bt-primary)' }} aria-hidden="true" />
@@ -165,13 +173,13 @@ const Dashboard: React.FC = () => {
         </Col>
 
         {/* Streaming info */}
-        <Col span={12}>
+        <Col xs={24} md={12}>
           <div className="bt-glass-card" style={{ padding: 20 }}>
             <div className="bt-section-heading" role="heading" aria-level={3}>
               <div className="bt-section-heading-bar" style={{ background: 'var(--bt-success)' }} aria-hidden="true" />
               <h3 className="bt-stat-card-label" style={{ margin: 0 }}>推流信息</h3>
               {isStreaming && (
-                <span className="bt-badge bt-badge-error" style={{ marginLeft: 'auto' }} aria-live="polite">
+                <span className="bt-badge bt-badge-running" style={{ marginLeft: 'auto' }} aria-live="polite">
                   <span className="bt-pulse" aria-hidden="true" />
                   直播中
                 </span>

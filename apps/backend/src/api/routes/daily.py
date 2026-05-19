@@ -24,6 +24,7 @@ from src.services.http_client import create_client
 import qrcode
 
 from ..ipc_server import IPCServer
+from src.core.response import ErrorCode, fail, ok
 from src.services.bilibili import bilibili_service
 from src.services.game_config import PRO_ROOT
 from src.services.app_settings import app_settings_service
@@ -89,17 +90,19 @@ async def register(ipc: IPCServer) -> None:
                 "wallet": wallet,
                 "liveEntry": daily_state.live_entries.get(slot),
             })
-        return {"slots": slots, "logs": daily_state.logs}
+        return ok({"slots": slots, "logs": daily_state.logs})
 
     async def save_audience_cookie(slot: int, cookie: str) -> Dict[str, Any]:
         _check_slot(slot)
+        if not cookie or not cookie.strip():
+            return fail("请输入 Cookie", ErrorCode.VALIDATION_ERROR, error_field="cookie")
         daily_state.write_cookie(slot, cookie)
         user = await _fetch_user(cookie)
         if not user:
             daily_state.log("error", f"观众 {slot} 身份验证失败")
-            return {"success": False, "error": "Cookie 无效"}
+            return fail("Cookie 无效，请检查是否过期", ErrorCode.UNAUTHORIZED, error_field="cookie")
         daily_state.log("success", f"观众 {slot} {user['name']} 身份已保存")
-        return {"success": True, "user": user}
+        return ok({"user": user})
 
     async def generate_audience_qr(slot: int) -> Dict[str, Any]:
         _check_slot(slot)
@@ -110,22 +113,22 @@ async def register(ipc: IPCServer) -> None:
                 headers={"User-Agent": bilibili_service.user_agent},
             )).json()
         if payload.get("code") != 0:
-            return {"success": False, "error": payload.get("message") or "二维码生成失败", "response": payload}
+            return fail(payload.get("message") or "二维码生成失败", ErrorCode.UPSTREAM_ERROR, data={"response": payload})
         data = payload.get("data", {})
         qr_key = data.get("qrcode_key", "")
         qr_url = data.get("url", "")
         daily_state.qr_sessions[qr_key] = {"slot": slot, "createdAt": time.time(), "status": "pending"}
         daily_state.log("info", f"观众 {slot} 扫码登录二维码已生成")
-        return {"success": True, "qrKey": qr_key, "qrUrl": _qr_data_url(qr_url), "expiresIn": 180}
+        return ok({"qrKey": qr_key, "qrUrl": _qr_data_url(qr_url), "expiresIn": 180})
 
     async def check_audience_qr_status(qr_key: str) -> Dict[str, Any]:
         session = daily_state.qr_sessions.get(qr_key)
         if not session:
-            return {"status": "expired", "message": "二维码会话不存在或已过期"}
+            return fail("二维码会话不存在或已过期", ErrorCode.NOT_FOUND, data={"status": "expired"})
         slot = int(session["slot"])
         if time.time() - float(session["createdAt"]) > 180:
             session["status"] = "expired"
-            return {"status": "expired", "message": "二维码已过期"}
+            return fail("二维码已过期", ErrorCode.GONE, data={"status": "expired"})
         async with create_client(timeout=20.0) as client:
             response = await client.get(
                 "https://passport.bilibili.com/x/passport-login/web/qrcode/poll",
@@ -137,40 +140,41 @@ async def register(ipc: IPCServer) -> None:
         if code == 0:
             cookies = _cookies_from_login_response(response, payload)
             if not cookies:
-                return {"status": "error", "message": "登录成功但未获得 Cookie", "response": payload}
+                return fail("登录成功但未获得 Cookie", ErrorCode.INTERNAL_ERROR, data={"status": "error", "response": payload})
             daily_state.write_cookie(slot, cookies)
             user = await _fetch_user(cookies)
             if not user:
-                return {"status": "error", "message": "Cookie 保存后验证失败", "response": payload}
+                return fail("Cookie 保存后验证失败", ErrorCode.INTERNAL_ERROR, data={"status": "error", "response": payload})
             session["status"] = "confirmed"
             daily_state.log("success", f"观众 {slot} {user['name']} 扫码身份已保存")
-            return {"status": "success", "success": True, "slot": slot, "user": user, "response": payload}
+            return ok({"status": "success", "slot": slot, "user": user, "response": payload})
         if code == 86101:
-            return {"status": "pending", "message": "请使用哔哩哔哩 APP 扫码"}
+            return ok({"status": "pending", "message": "请使用哔哩哔哩 APP 扫码"})
         if code in (86090, 86091):
-            return {"status": "scanned", "message": "已扫码，请在手机端确认"}
+            return ok({"status": "scanned", "message": "已扫码，请在手机端确认"})
         if code == 86038:
-            return {"status": "expired", "message": "二维码已过期"}
-        return {"status": "failed", "message": payload.get("message") or payload.get("data", {}).get("message") or "扫码失败", "response": payload}
+            return fail("二维码已过期", ErrorCode.GONE, data={"status": "expired"})
+        return fail(payload.get("message") or payload.get("data", {}).get("message") or "扫码失败", ErrorCode.UPSTREAM_ERROR, data={"status": "failed", "response": payload})
 
     async def validate_audience(slot: int) -> Dict[str, Any]:
         user = await _require_audience(slot)
         daily_state.log("success", f"观众 {slot} {user['name']} 已就位")
-        return {"success": True, "user": user}
+        return ok({"user": user})
 
     async def wallet(slot: int) -> Dict[str, Any]:
         user = await _require_audience(slot)
         wallet_info = await _wallet_cached(slot, daily_state.read_cookie(slot), force=True)
         daily_state.log("info", f"观众 {slot} {user['name']} 钱包余额 {wallet_info.get('goldText', '-')}")
-        return {"success": not wallet_info.get("error"), "wallet": wallet_info, "user": user}
+        if wallet_info.get("error"):
+            return fail(wallet_info["error"], ErrorCode.UPSTREAM_ERROR)
+        return ok({"wallet": wallet_info, "user": user})
 
     async def recharge_qr(slot: int | None = None) -> Dict[str, Any]:
         if slot is not None:
             await _require_audience(slot)
         recharge = await _discover_battery_recharge()
         url = recharge["url"]
-        return {
-            "success": True,
+        return ok({
             "url": url,
             "qrUrl": _qr_data_url(url),
             "title": "B站电池充值",
@@ -180,7 +184,7 @@ async def register(ipc: IPCServer) -> None:
             "trigger": recharge.get("trigger"),
             "anchor": recharge.get("anchor"),
             "fallback": recharge.get("fallback", False),
-        }
+        })
 
     async def recharge_panel(slot: int, room_id: str = "") -> Dict[str, Any]:
         user = await _require_audience(slot)
@@ -192,8 +196,9 @@ async def register(ipc: IPCServer) -> None:
             "success" if panel.get("success") else "error",
             f"观众 {slot} {user['name']} 充值面板: 钱包 code={panel.get('wallet', {}).get('code')} 面板 code={panel.get('panel', {}).get('code')}",
         )
-        return {
-            "success": bool(panel.get("success")),
+        if not panel.get("success"):
+            return fail("充值面板加载失败", ErrorCode.UPSTREAM_ERROR)
+        return ok({
             "slot": slot,
             "user": user,
             "room": room,
@@ -202,7 +207,7 @@ async def register(ipc: IPCServer) -> None:
             "qrUrl": _qr_data_url(recharge.get("url", BATTERY_RECHARGE_FALLBACK_URL)),
             "componentUrl": recharge.get("componentUrl"),
             "endpointSpec": _recharge_endpoint_spec(),
-        }
+        })
 
     async def create_recharge_order(slot: int, room_id: str, option: dict[str, Any], confirm: bool = False) -> Dict[str, Any]:
         if not confirm:
@@ -211,25 +216,29 @@ async def register(ipc: IPCServer) -> None:
         cookie = await _refresh_cookie_via_homepage(daily_state.read_cookie(slot))
         room = await _live_room_info(cookie, room_id)
         if room.get("code") != 0:
-            return {"success": False, "error": room.get("message") or "直播间信息获取失败", "room": room}
+            return fail(room.get("message") or "直播间信息获取失败", ErrorCode.UPSTREAM_ERROR, data={"room": room})
         panel = await _fetch_recharge_panel(cookie, room)
         goods = _build_recharge_goods(panel, option)
         if not goods:
-            return {"success": False, "error": "充值金额无效，请刷新充值面板后重试", "panel": panel}
+            return fail("充值金额无效，请刷新充值面板后重试", ErrorCode.VALIDATION_ERROR, data={"panel": panel})
         order = await _create_recharge_qr_order(cookie, room, goods)
-        ok = order.get("code") == 0 and bool(order.get("orderId"))
+        success = order.get("code") == 0 and bool(order.get("orderId"))
         daily_state.log(
-            "success" if ok else "error",
+            "success" if success else "error",
             f"观众 {slot} {user['name']} 创建充值订单 {goods.get('priceText')}: code={order.get('code')} order={order.get('orderId') or '-'}",
         )
-        return {"success": ok, "user": user, "room": room, "goods": goods, "order": order}
+        if not success:
+            return fail(order.get("message") or "创建充值订单失败", ErrorCode.UPSTREAM_ERROR, data={"order": order})
+        return ok({"user": user, "room": room, "goods": goods, "order": order})
 
     async def query_recharge_order(slot: int, order_id: str) -> Dict[str, Any]:
         user = await _require_audience(slot)
         cookie = daily_state.read_cookie(slot)
         result = await _query_recharge_order(cookie, order_id)
         daily_state.log("info", f"观众 {slot} {user['name']} 查询充值订单 {order_id}: {result.get('statusText')}")
-        return {"success": result.get("code") == 0, "user": user, "order": result}
+        if result.get("code") != 0:
+            return fail(result.get("message") or "查询充值订单失败", ErrorCode.UPSTREAM_ERROR, data={"order": result})
+        return ok({"user": user, "order": result})
 
     async def enter_live_room(slot: int, room_id: str, duration_minutes: int = 16, mode: str = "api") -> Dict[str, Any]:
         user = await _require_audience(slot)
@@ -237,12 +246,12 @@ async def register(ipc: IPCServer) -> None:
         room = await _live_room_info(cookie, room_id)
         if room.get("code") != 0:
             daily_state.log("error", f"观众 {slot} 进入直播间失败: code={room.get('code')} message={room.get('message')}")
-            return {"success": False, "response": room.get("response"), "actions": []}
+            return fail(room.get("message") or "进入直播间失败", ErrorCode.UPSTREAM_ERROR, data={"response": room.get("response"), "actions": []})
         actions = await _enter_live_room_actions(cookie, room.get("roomId") or room_id)
         ok_actions = [item for item in actions if item.get("ok")]
         if not ok_actions:
             daily_state.log("error", f"观众 {slot} 进房动作未确认成功: {_summarize_actions(actions)}")
-            return {"success": False, "response": room.get("response"), "actions": actions}
+            return fail("进房动作未确认成功", ErrorCode.UPSTREAM_ERROR, data={"response": room.get("response"), "actions": actions})
         expires_at = datetime.now() + timedelta(minutes=max(duration_minutes, 1))
         old_task = daily_state.entry_tasks.pop(slot, None)
         if old_task and not old_task.done():
@@ -256,7 +265,7 @@ async def register(ipc: IPCServer) -> None:
             browser = await _open_live_room_browser(slot, user["name"], cookie, room.get("roomId") or room_id, max(duration_minutes, 1), headless=mode == "headless")
             if not browser.get("success"):
                 daily_state.log("error", f"观众 {slot} 浏览器进房失败: {browser.get('error')}")
-                return {"success": False, "response": room.get("response"), "actions": actions, "apiWatch": api_watch, "browser": browser}
+                return fail(browser.get("error") or "浏览器进房失败", ErrorCode.INTERNAL_ERROR, data={"response": room.get("response"), "actions": actions, "apiWatch": api_watch, "browser": browser})
         daily_state.live_entries[slot] = {
             "roomId": room.get("roomId") or room_id,
             "shortId": room.get("shortId"),
@@ -272,7 +281,7 @@ async def register(ipc: IPCServer) -> None:
         if browser:
             daily_state.log("info", f"观众 {slot} 浏览器进房顺序: 打开 B站首页 -> 注入 Cookie -> 刷新登录态 -> 跳转直播间")
         daily_state.log("success", f"观众 {slot} {user['name']} 已进入直播间 {room.get('roomId') or room_id}，模式 {mode}，保活 {duration_minutes} 分钟")
-        return {"success": True, "response": room.get("response"), "actions": actions, "apiWatch": api_watch, "browser": browser, "entry": daily_state.live_entries[slot]}
+        return ok({"response": room.get("response"), "actions": actions, "apiWatch": api_watch, "browser": browser, "entry": daily_state.live_entries[slot]})
 
     async def send_danmaku(slot: int, room_id: str, message: str = "") -> Dict[str, Any]:
         user = await _require_audience(slot)
@@ -292,9 +301,11 @@ async def register(ipc: IPCServer) -> None:
         }
         async with create_client(timeout=12.0) as client:
             payload = (await client.post("https://api.live.bilibili.com/msg/send", data=data, headers=_headers(cookie, f"https://live.bilibili.com/{room_id}"))).json()
-        ok = payload.get("code") == 0
-        daily_state.log("success" if ok else "error", f"观众 {slot} {user['name']} 发送弹幕: code={payload.get('code')} message={payload.get('message') or payload.get('msg') or text}")
-        return {"success": ok, "response": payload}
+        success = payload.get("code") == 0
+        daily_state.log("success" if success else "error", f"观众 {slot} {user['name']} 发送弹幕: code={payload.get('code')} message={payload.get('message') or payload.get('msg') or text}")
+        if not success:
+            return fail(payload.get("message") or payload.get("msg") or "发送弹幕失败", ErrorCode.UPSTREAM_ERROR, data={"response": payload})
+        return ok({"response": payload})
 
     async def send_gift(slot: int, room_id: str) -> Dict[str, Any]:
         user = await _require_audience(slot)
@@ -323,9 +334,11 @@ async def register(ipc: IPCServer) -> None:
         async with create_client(timeout=12.0) as client:
             payload = (await client.post("https://api.live.bilibili.com/xlive/revenue/v1/gift/sendGold", data=data, headers=_headers(cookie, f"https://live.bilibili.com/{room_id}"))).json()
         wallet = await _wallet(cookie)
-        ok = payload.get("code") == 0
-        daily_state.log("success" if ok else "error", f"观众 {slot} {user['name']} 赠送牛蛙: code={payload.get('code')} message={payload.get('message') or payload.get('msg')}; 钱包余额 {wallet.get('goldText', '-')}")
-        return {"success": ok, "response": payload, "wallet": wallet}
+        success = payload.get("code") == 0
+        daily_state.log("success" if success else "error", f"观众 {slot} {user['name']} 赠送牛蛙: code={payload.get('code')} message={payload.get('message') or payload.get('msg')}; 钱包余额 {wallet.get('goldText', '-')}")
+        if not success:
+            return fail(payload.get("message") or payload.get("msg") or "赠送礼物失败", ErrorCode.UPSTREAM_ERROR, data={"response": payload, "wallet": wallet})
+        return ok({"response": payload, "wallet": wallet})
 
     ipc.register_handler("daily:status", status)
     ipc.register_handler("daily:audienceQR", generate_audience_qr)
@@ -481,8 +494,8 @@ async def _keep_live_room_active(slot: int, name: str, cookie: str, room_id: str
                 break
             room = await _live_room_info(cookie, room_id)
             actions = await _enter_live_room_actions(cookie, room_id)
-            ok = room.get("code") == 0 and any(item.get("ok") for item in actions)
-            daily_state.log("success" if ok else "error", f"观众 {slot} {name} 直播间保活: {_summarize_actions(actions)}")
+            alive_ok = room.get("code") == 0 and any(item.get("ok") for item in actions)
+            daily_state.log("success" if alive_ok else "error", f"观众 {slot} {name} 直播间保活: {_summarize_actions(actions)}")
         entry = daily_state.live_entries.get(slot)
         if entry and str(entry.get("roomId")) == str(room_id):
             entry["expired"] = True
@@ -496,8 +509,9 @@ async def _start_live_watch_api(slot: int, name: str, cookie: str, room_id: str,
     if old_task and not old_task.done():
         old_task.cancel()
     context = await _live_watch_api_enter(cookie, room_id)
-    if not context.get("success"):
-        daily_state.log("error", f"观众 {slot} {name} API 观看心跳启动失败: {context.get('error') or context.get('message')}")
+    if not context.get("ok"):
+        error_msg = (context.get("error") if isinstance(context.get("error"), str) else None) or "API 观看心跳启动失败"
+        daily_state.log("error", f"观众 {slot} {name} {error_msg}")
         return context
     daily_state.api_watch_tasks[slot] = asyncio.create_task(_live_watch_api_loop(slot, name, cookie, context, duration_minutes))
     daily_state.log("success", f"观众 {slot} {name} API 观看心跳已启动: interval={context.get('heartbeatInterval')}s")
@@ -515,7 +529,7 @@ async def _live_watch_api_enter(cookie: str, room_id: str) -> dict[str, Any]:
             room_map = base.get("data", {}).get("by_room_ids", {}) if isinstance(base.get("data"), dict) else {}
             room_info = room_map.get(str(room_id)) or next(iter(room_map.values()), {})
             if base.get("code") != 0 or not room_info:
-                return {"success": False, "error": base.get("message") or "房间心跳基础信息获取失败", "response": base}
+                return fail(base.get("message") or "房间心跳基础信息获取失败", ErrorCode.UPSTREAM_ERROR, data={"response": base})
             buvid = _cookie_value(cookie, "LIVE_BUVID") or _cookie_value(cookie, "buvid3") or str(uuid.uuid4())
             context = {
                 "roomId": str(room_info.get("room_id") or room_id),
@@ -534,10 +548,9 @@ async def _live_watch_api_enter(cookie: str, room_id: str) -> dict[str, Any]:
                 headers=_headers(cookie, f"https://live.bilibili.com/{room_id}"),
             )).json()
         if enter.get("code") != 0:
-            return {"success": False, "error": enter.get("message") or enter.get("msg") or "观看进入心跳失败", "response": enter, **context}
+            return fail(enter.get("message") or enter.get("msg") or "观看进入心跳失败", ErrorCode.UPSTREAM_ERROR, data={**context, "response": enter})
         data = enter.get("data", {}) if isinstance(enter.get("data"), dict) else {}
         context.update({
-            "success": True,
             "mode": "api-watch",
             "timestamp": data.get("timestamp"),
             "heartbeatInterval": int(data.get("heartbeat_interval") or 60),
@@ -545,9 +558,9 @@ async def _live_watch_api_enter(cookie: str, room_id: str) -> dict[str, Any]:
             "secretRule": data.get("secret_rule"),
             "enterResponse": enter,
         })
-        return context
+        return ok(context)
     except Exception as exc:
-        return {"success": False, "error": str(exc)}
+        return fail(str(exc))
 
 
 async def _live_watch_api_loop(slot: int, name: str, cookie: str, context: dict[str, Any], duration_minutes: int) -> None:
@@ -559,8 +572,8 @@ async def _live_watch_api_loop(slot: int, name: str, cookie: str, context: dict[
             if time.time() >= end_ts:
                 break
             result = await _live_watch_api_heartbeat(cookie, context, interval)
-            ok = result.get("code") == 0
-            daily_state.log("success" if ok else "error", f"观众 {slot} {name} API 观看心跳: code={result.get('code')} {result.get('message') or result.get('statusText') or ''}".strip())
+            heartbeat_ok = result.get("code") == 0
+            daily_state.log("success" if heartbeat_ok else "error", f"观众 {slot} {name} API 观看心跳: code={result.get('code')} {result.get('message') or result.get('statusText') or ''}".strip())
         daily_state.log("info", f"观众 {slot} {name} API 观看心跳结束")
     except asyncio.CancelledError:
         daily_state.log("info", f"观众 {slot} {name} API 观看心跳已替换")

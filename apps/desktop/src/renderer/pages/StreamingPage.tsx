@@ -102,7 +102,7 @@ const StreamingPage: React.FC = () => {
           <p>定时直播推流 / 仿 OBS 推流</p>
         </div>
         <div className="bt-page-actions">
-          <span className={`bt-badge ${isStreaming ? 'bt-badge-error' : 'bt-badge-idle'}`} aria-live="polite">
+          <span className={`bt-badge ${isStreaming ? 'bt-badge-running' : 'bt-badge-idle'}`} aria-live="polite">
             {isStreaming && <span className="bt-pulse" aria-hidden="true" />}
             {status.status || 'idle'}
           </span>
@@ -110,7 +110,7 @@ const StreamingPage: React.FC = () => {
       </div>
 
       <Row gutter={16}>
-        <Col span={9}>
+        <Col xs={24} lg={9}>
           <Card title="推流配置">
             <Form form={form} layout="vertical" initialValues={{ mode: 'obs', quality: 'low', cpuMode: true }}>
               <Form.Item name="mode" label="推流模式">
@@ -120,7 +120,7 @@ const StreamingPage: React.FC = () => {
                 </Select>
               </Form.Item>
               <Form.Item name="roomId" label="直播间号" rules={[{ required: true, message: '请输入直播间号' }]}>
-                <Input placeholder="B站直播间号" onChange={saveFormValues} />
+                <Input placeholder="B站直播间号" autoFocus onChange={saveFormValues} />
               </Form.Item>
               <Form.Item name="game" label="游戏分区">
                 <Select allowClear placeholder="用于 B站开播模式" onChange={saveFormValues}>
@@ -184,7 +184,7 @@ const StreamingPage: React.FC = () => {
             </Form>
           </Card>
         </Col>
-        <Col span={15}>
+        <Col xs={24} lg={15}>
           <Card
             title="推流状态"
             extra={<Space><Tag color={isStreaming ? 'red' : 'default'}>{status.status || 'idle'}</Tag><Button icon={<ReloadOutlined />} onClick={loadStatus}>刷新</Button></Space>}

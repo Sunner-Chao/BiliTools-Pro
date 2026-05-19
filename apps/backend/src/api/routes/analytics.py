@@ -4,6 +4,7 @@ from typing import Any, Dict
 
 from ..ipc_server import IPCServer
 from src.api.routes.daily import SLOT_COUNT, daily_state, _fetch_user
+from src.core.response import ok
 from src.services.bilibili import bilibili_service
 from src.services.game_config import game_config_service
 from src.services.streaming_engine import streaming_engine
@@ -66,7 +67,7 @@ async def register(ipc: IPCServer) -> None:
                 "mid": audience.get("mid") if audience else None,
                 "liveEntry": daily_state.live_entries.get(slot),
             })
-        return {
+        return ok({
             "updatedAt": datetime.now().isoformat(timespec="seconds"),
             "totalTasks": total,
             "completedTasks": completed,
@@ -86,6 +87,6 @@ async def register(ipc: IPCServer) -> None:
             "audienceSlots": audience_slots,
             "dailyLogCount": len(daily_state.logs),
             "user": user,
-        }
+        })
 
     ipc.register_handler("analytics:summary", summary)

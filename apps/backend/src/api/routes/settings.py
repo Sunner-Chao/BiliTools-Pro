@@ -5,6 +5,7 @@ from typing import Any, Dict
 
 from ..ipc_server import IPCServer
 from src.core.config import config
+from src.core.response import ErrorCode, fail, ok
 from src.api.routes.daily import SLOT_COUNT, daily_state
 from src.services.app_settings import app_settings_service
 from src.services.bilibili import bilibili_service
@@ -27,7 +28,7 @@ async def register(ipc: IPCServer) -> None:
             _file_info(daily_state.slot_path(slot), {"slot": slot, "label": f"观众 {slot}"})
             for slot in range(SLOT_COUNT)
         ]
-        return {
+        return ok({
             "settings": app_settings_service.get(),
             "credential": bilibili_service.credential_meta(),
             "user": user,
@@ -61,13 +62,13 @@ async def register(ipc: IPCServer) -> None:
                 "cookiesDir": str(Path(config.cookies_dir).resolve()),
                 "cacheDir": str(Path(config.cache_dir).resolve()),
             },
-        }
+        })
 
     async def save_settings(values: Dict[str, Any]) -> Dict[str, Any]:
         settings = app_settings_service.update(values)
         if "credentialValidDays" in values:
             bilibili_service.refresh_credential_expiry(int(values["credentialValidDays"]))
-        return {"success": True, "settings": settings}
+        return ok({"settings": settings})
 
     ipc.register_handler("settings:get", get_settings)
     ipc.register_handler("settings:save", save_settings)

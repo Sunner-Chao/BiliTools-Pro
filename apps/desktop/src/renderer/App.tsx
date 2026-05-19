@@ -21,7 +21,10 @@ function App() {
   }, [uiTheme]);
 
   const routes = loading ? (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: 'var(--bt-text-primary)' }}>加载中...</div>
+    <div className="bt-page-loader" role="status" aria-label="正在加载应用">
+      <div className="bt-page-loader-spinner" />
+      <span className="bt-page-loader-text">正在验证登录状态...</span>
+    </div>
   ) : !isAuthenticated ? (
     <Routes>
       <Route path="/login" element={<LoginPage />} />

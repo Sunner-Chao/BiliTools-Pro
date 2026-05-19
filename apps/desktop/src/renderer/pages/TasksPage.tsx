@@ -45,8 +45,20 @@ const TasksPage: React.FC = () => {
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [stockLoading, setStockLoading] = useState(false);
+  const [resourceSearch, setResourceSearch] = useState('');
 
   const activeTask = useMemo(() => tasks.find((task) => task.id === activeTaskId) || tasks[0], [tasks, activeTaskId]);
+
+  const filteredResources = useMemo(() => {
+    if (!resourceSearch.trim()) return resources;
+    const q = resourceSearch.toLowerCase();
+    return resources.filter(
+      (item) =>
+        item.name.toLowerCase().includes(q) ||
+        item.id.toLowerCase().includes(q) ||
+        (item.awardName && item.awardName.toLowerCase().includes(q)),
+    );
+  }, [resources, resourceSearch]);
 
   const loadTasks = async () => {
     const result = await window.api.tasks.list();
@@ -104,8 +116,14 @@ const TasksPage: React.FC = () => {
       await loadTasks();
     };
     bootstrap();
-    const timer = window.setInterval(loadTasks, 2000);
-    return () => window.clearInterval(timer);
+    // Subscribe to real-time task progress events (replaces setInterval polling)
+    const unsub = window.api.on('tasks:progress', (data: any) => {
+      if (data?.taskId && typeof data?.progress === 'number') {
+        // Update progress/logs for active task in Redux
+        dispatch(setTasks(data.tasks || [data]));
+      }
+    });
+    return () => { unsub(); };
   }, []);
 
   const handleGameChange = async (game: string) => {
@@ -278,7 +296,7 @@ const TasksPage: React.FC = () => {
       </div>
 
       <Row gutter={16}>
-        <Col span={9}>
+        <Col xs={24} lg={9}>
           <Card title="选择资源道具 + 定时抢码">
             <Form form={form} layout="vertical" initialValues={{ interval: 0.3, holdtime: 30 }}>
               <Form.Item name="name" label="任务名称">
@@ -288,7 +306,7 @@ const TasksPage: React.FC = () => {
                 </Select>
               </Form.Item>
               <Form.Item name="game" label="游戏配置" rules={[{ required: true, message: '请选择游戏' }]}>
-                <Select placeholder="选择游戏" onChange={handleGameChange}>
+                <Select placeholder="选择游戏" autoFocus onChange={handleGameChange}>
                   {games.map((game) => <Select.Option key={game.id} value={game.id}>{game.name} ({game.taskCount})</Select.Option>)}
                 </Select>
               </Form.Item>
@@ -307,35 +325,50 @@ const TasksPage: React.FC = () => {
               ) : null}
               <Form.Item
                 label="资源道具"
-                extra={resources.some((item) => item.stockFetchedAt) ? `最近库存更新时间：${resources.find((item) => item.stockFetchedAt)?.stockFetchedAt}` : undefined}
+                extra={resources.some((item) => item.stockFetchedAt) ? `最近库存更新时间：${resources.find((item) => item.stockFetchedAt)?.stockFetchedAt}` : `共 ${resources.length} 个资源`}
               >
                 <Space style={{ marginBottom: 8 }} wrap>
                   <Button size="small" icon={<ReloadOutlined />} loading={stockLoading} onClick={() => handleQueryStocks(false)}>查询库存</Button>
                   <Button size="small" loading={stockLoading} disabled={!selectedIds.length} onClick={() => handleQueryStocks(true)}>查询选中库存</Button>
                 </Space>
-                <div style={{ maxHeight: 240, overflow: 'auto', border: '1px solid var(--bt-glass-border)', borderRadius: 12, padding: 12, background: 'color-mix(in srgb, var(--bt-bg-overlay) 55%, transparent)' }}>
+                <Input
+                  placeholder="搜索资源名称或 ID..."
+                  allowClear
+                  value={resourceSearch}
+                  onChange={(e) => setResourceSearch(e.target.value)}
+                  style={{ marginBottom: 8 }}
+                  prefix={<span style={{ opacity: 0.4, fontSize: 12 }}>🔍</span>}
+                />
+                <div className="bt-resource-list">
                   <Checkbox.Group value={selectedIds} onChange={(ids) => { setSelectedIds(ids as string[]); saveFormValues(); }}>
-                    <Space direction="vertical">
-                      {resources.map((item) => (
-                        <Checkbox key={item.id} value={item.id}>
-                          <Space size={6} wrap>
-                            <span style={{ color: 'var(--bt-text-primary)' }}>{item.name}</span>
-                            {item.awardName ? <Tag color="green">{item.awardName}</Tag> : null}
-                            {item.dayStock !== undefined || item.totalStock !== undefined ? (
-                              <>
-                                <Tag color="blue">每日 {formatStock(item.dayStock)}</Tag>
-                                <Tag color="purple">总量 {formatStock(item.totalStock)}</Tag>
-                              </>
-                            ) : null}
-                            {item.taskStatus !== undefined ? <Tag color="gold">状态 {item.taskStatusLabel || item.taskStatus}</Tag> : null}
-                            {item.stockSummary ? <Tag color="cyan">{item.stockSummary}</Tag> : null}
-                            {item.queryError || item.queryMessage ? <Tag color="red">{item.queryMessage || item.queryError}</Tag> : null}
-                            <Tag>{item.id}</Tag>
-                          </Space>
-                        </Checkbox>
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                      {filteredResources.map((item) => (
+                        <div key={item.id} className="bt-resource-item">
+                          <Checkbox value={item.id}>
+                            <Space size={6} wrap>
+                              <span style={{ color: 'var(--bt-text-primary)' }}>{item.name}</span>
+                              {item.awardName ? <Tag color="green">{item.awardName}</Tag> : null}
+                              {item.dayStock !== undefined || item.totalStock !== undefined ? (
+                                <>
+                                  <Tag color="blue">每日 {formatStock(item.dayStock)}</Tag>
+                                  <Tag color="purple">总量 {formatStock(item.totalStock)}</Tag>
+                                </>
+                              ) : null}
+                              {item.taskStatus !== undefined ? <Tag color="gold">状态 {item.taskStatusLabel || item.taskStatus}</Tag> : null}
+                              {item.stockSummary ? <Tag color="cyan">{item.stockSummary}</Tag> : null}
+                              {item.queryError || item.queryMessage ? <Tag color="red">{item.queryMessage || item.queryError}</Tag> : null}
+                              <Tag>{item.id}</Tag>
+                            </Space>
+                          </Checkbox>
+                        </div>
                       ))}
                     </Space>
                   </Checkbox.Group>
+                  {filteredResources.length === 0 && resources.length > 0 && (
+                    <div className="bt-empty-state" style={{ padding: 'var(--bt-space-4)' }}>
+                      <span className="bt-empty-state-text">无匹配资源</span>
+                    </div>
+                  )}
                 </div>
               </Form.Item>
               <Form.Item name="targetTime" label="目标时间">
@@ -357,7 +390,7 @@ const TasksPage: React.FC = () => {
             </Form>
           </Card>
         </Col>
-        <Col span={15}>
+        <Col xs={24} lg={15}>
           <Card title="任务列表" extra={<Button icon={<ReloadOutlined />} onClick={loadTasks}>刷新</Button>}>
             <Table rowKey="id" size="small" dataSource={tasks} columns={columns} pagination={{ pageSize: 5 }} />
           </Card>

@@ -3,6 +3,7 @@ import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
 import StatusBar from './StatusBar';
+import AppToast from './AppToast';
 
 const MainLayout: React.FC = () => {
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -37,6 +38,8 @@ const MainLayout: React.FC = () => {
       <div className="bt-layout-status">
         <StatusBar />
       </div>
+      {/* Global toast notifications */}
+      <AppToast />
     </div>
   );
 };

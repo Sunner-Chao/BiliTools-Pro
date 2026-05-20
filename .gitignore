@@ -21,6 +21,8 @@ venv/
 release/
 .cache/
 
+
+runtime
 # Large binary files - use download instead
 execute/*.exe
 model/*.bin

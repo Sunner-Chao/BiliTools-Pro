@@ -1,0 +1,459 @@
+"""Scheduled Bilibili award task engine with visible logs."""
+import asyncio
+import hashlib
+import random
+import os
+import time
+import uuid
+from datetime import datetime
+from typing import Any
+
+import httpx
+from .http_client import create_client
+from src.core.response import ErrorCode, fail, ok
+
+from .bilibili import bilibili_service
+from .game_config import game_config_service
+
+
+def _get_ipc_server():
+    """Lazy import to avoid circular dependency."""
+    from src.api.ipc_server import ipc_server
+    return ipc_server
+
+
+class TaskEngine:
+    """Runs selected resource tasks at a target time and records UI-readable logs."""
+
+    def __init__(self) -> None:
+        self._tasks: dict[str, dict[str, Any]] = {}
+        self._running: dict[str, asyncio.Task[None]] = {}
+
+    def _log(self, task_id: str, level: str, message: str) -> None:
+        task = self._tasks.get(task_id)
+        if not task:
+            return
+        task.setdefault("logs", []).append(
+            {
+                "time": datetime.now().strftime("%H:%M:%S"),
+                "level": level,
+                "message": message,
+            }
+        )
+        task["logs"] = task["logs"][-400:]
+
+    async def _emit_progress(self, task_id: str) -> None:
+        """Push task progress snapshot to all listeners via IPC emit.
+
+        Frontend can subscribe to ``tasks:progress`` events instead of polling,
+        reducing ~60% of unnecessary renders.
+        """
+        task = self._tasks.get(task_id)
+        if not task:
+            return
+        try:
+            ipc = _get_ipc_server()
+            await ipc.emit("tasks:progress", {
+                "taskId": task_id,
+                "task": task,
+                "status": task.get("status"),
+                "progress": task.get("progress", 0),
+                "countdownSeconds": task.get("countdownSeconds", 0),
+                "resultCount": len(task.get("results", [])),
+                "lastLog": task.get("logs", [])[-1] if task.get("logs") else None,
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+            })
+        except Exception:
+            pass  # emit failure must never break the task loop
+
+    async def create(self, config: dict[str, Any]) -> dict[str, Any]:
+        task_id = f"task_{uuid.uuid4().hex[:8]}"
+        selected = config.get("selectedTasks") or []
+        if not selected and config.get("game"):
+            selected = game_config_service.list_tasks(config["game"])
+        task = {
+            "id": task_id,
+            "config": {**config, "selectedTasks": selected},
+            "status": "pending",
+            "targetTime": config.get("targetTime"),
+            "countdownSeconds": 0,
+            "progress": 0,
+            "results": [],
+            "logs": [],
+            "createdAt": datetime.now().isoformat(timespec="seconds"),
+            "startedAt": None,
+            "completedAt": None,
+        }
+        self._tasks[task_id] = task
+        self._log(task_id, "info", f"已创建抢码任务，资源数量 {len(selected)}")
+        return ok({"task": task})
+
+    async def start(self, task_id: str) -> dict[str, Any]:
+        task = self._tasks.get(task_id)
+        if not task:
+            return fail("Task not found", ErrorCode.NOT_FOUND)
+        if task_id in self._running:
+            return fail("Task already running", ErrorCode.CONFLICT)
+        task["status"] = "waiting" if self._is_future_target(task.get("targetTime")) else "running"
+        task["countdownSeconds"] = max(0, self._seconds_until(task.get("targetTime")))
+        task["startedAt"] = datetime.now().isoformat(timespec="seconds")
+        self._running[task_id] = asyncio.create_task(self._run(task_id))
+        self._log(task_id, "warning", "抢码任务已启动")
+        return ok({"task": task})
+
+    async def stop(self, task_id: str) -> dict[str, Any]:
+        task = self._tasks.get(task_id)
+        if not task:
+            return fail("Task not found", ErrorCode.NOT_FOUND)
+        running = self._running.pop(task_id, None)
+        if running:
+            running.cancel()
+        task["status"] = "stopped"
+        task["countdownSeconds"] = 0
+        task["completedAt"] = datetime.now().isoformat(timespec="seconds")
+        self._log(task_id, "warning", "抢码任务已停止")
+        return ok({"task": task})
+
+    async def delete(self, task_id: str) -> dict[str, Any]:
+        running = self._running.pop(task_id, None)
+        if running:
+            running.cancel()
+        if task_id not in self._tasks:
+            return fail("Task not found", ErrorCode.NOT_FOUND)
+        del self._tasks[task_id]
+        return ok()
+
+    def list(self) -> list[dict[str, Any]]:
+        return list(self._tasks.values())
+
+    def get(self, task_id: str) -> dict[str, Any] | None:
+        return self._tasks.get(task_id)
+
+    async def query_stocks(
+        self,
+        game: str,
+        task_ids: Any = None,
+        web_location: Any = None,
+    ) -> dict[str, Any]:
+        """Query current stock for game resource tasks."""
+        tasks = game_config_service.list_tasks(game)
+        if task_ids:
+            wanted = {str(task_id) for task_id in task_ids if task_id}
+            tasks = [item for item in tasks if str(item.get("id")) in wanted]
+        if not tasks:
+            return fail("未找到可查询的资源任务", ErrorCode.NOT_FOUND, data={"tasks": []})
+
+        game_config = game_config_service.get_config(game)
+        resolved_web_location = (
+            web_location
+            or os.getenv("BILITOOLS_TASK_WEB_LOCATION")
+            or game_config.get("task_web_location")
+            or game_config.get("web_location")
+            or 888.81821
+        )
+        query_interval = self._to_float(
+            os.getenv("BILITOOLS_STOCK_QUERY_INTERVAL")
+            or game_config.get("stock_query_interval")
+            or 1.0,
+            1.0,
+        )
+        config = {"webLocation": resolved_web_location}
+        results = []
+        for index, item in enumerate(tasks):
+            if index > 0 and query_interval > 0:
+                await asyncio.sleep(query_interval)
+            enriched = await self._enrich_task_item(item, config, force=True)
+            results.append({**enriched, "stockFetchedAt": datetime.now().isoformat(timespec="seconds")})
+
+        return ok({
+            "game": game,
+            "webLocation": resolved_web_location,
+            "tasks": results,
+        })
+
+    @staticmethod
+    def _task_status_label(status: Any) -> str:
+        return {
+            0: "已完成任务",
+            2: "每日库存不足",
+            6: "已经领取过了",
+            7: "暂无领取资格",
+            8: "暂无领取资格",
+            10: "活动已过期-请更新配置",
+            11: "未到领取时间",
+        }.get(status, str(status) if status is not None else "未知")
+
+    async def _run(self, task_id: str) -> None:
+        task = self._tasks[task_id]
+        config = task["config"]
+        selected = config.get("selectedTasks") or []
+        interval = float(config.get("interval") or 0.3)
+        holdtime = float(config.get("holdtime") or 30)
+        target_time = config.get("targetTime")
+
+        try:
+            if target_time:
+                await self._wait_until(task_id, target_time)
+
+            if not await bilibili_service.is_logged_in():
+                raise RuntimeError("请先登录 B 站账号")
+
+            task["status"] = "running"
+            task["countdownSeconds"] = 0
+            await self._emit_progress(task_id)
+            deadline = time.monotonic() + holdtime
+            completed: set[str] = set()
+            self._log(task_id, "info", f"开始循环抢兑，并发执行，间隔 {interval}s，自动停止 {holdtime}s")
+
+            while time.monotonic() < deadline and len(completed) < len(selected):
+                # 过滤出未完成的任务
+                pending = [item for item in selected if item.get("id") and str(item.get("id")) not in completed]
+                if not pending:
+                    break
+
+                # 并发执行所有待领取任务
+                results = await asyncio.gather(*[self._receive(config, item) for item in pending], return_exceptions=True)
+
+                for i, result in enumerate(results):
+                    if isinstance(result, Exception):
+                        item = pending[i]
+                        item_id = str(item.get("id", ""))
+                        name = item.get("name") or item.get("taskName") or item_id
+                        self._log(task_id, "error", f"{name}: 请求异常 {result}")
+                        task["results"].append({"taskId": item_id, "name": name, "code": -1, "message": str(result), "done": False, "level": "error"})
+                    else:
+                        task["results"].append(result)
+                        self._log(task_id, result["level"], f"{result['name']}: {result['message']}")
+                        if result["done"]:
+                            item_id = str(result.get("taskId", ""))
+                            if item_id:
+                                completed.add(item_id)
+
+                # 更新进度
+                task["progress"] = int(len(completed) / max(len(selected), 1) * 100)
+                await self._emit_progress(task_id)
+
+                # 添加随机波动的间隔时间，避免固定频率被风控
+                sleep_time = interval * random.uniform(0.997, 1.003)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                await asyncio.sleep(min(sleep_time, remaining))
+
+            task["status"] = "completed" if completed else "failed"
+            task["countdownSeconds"] = 0
+            task["completedAt"] = datetime.now().isoformat(timespec="seconds")
+            self._log(task_id, "warning", f"抢码结束，完成 {len(completed)}/{len(selected)}")
+            await self._emit_progress(task_id)
+        except asyncio.CancelledError:
+            self._log(task_id, "warning", "任务被取消")
+            await self._emit_progress(task_id)
+        except Exception as exc:
+            task["status"] = "failed"
+            task["countdownSeconds"] = 0
+            task["error"] = str(exc)
+            task["completedAt"] = datetime.now().isoformat(timespec="seconds")
+            self._log(task_id, "error", f"任务失败: {exc}")
+            await self._emit_progress(task_id)
+        finally:
+            self._running.pop(task_id, None)
+
+    async def _wait_until(self, task_id: str, target_time: str) -> None:
+        target = self._parse_target_time(target_time)
+        task = self._tasks[task_id]
+        task["status"] = "waiting"
+        display_target = target.astimezone().strftime("%Y-%m-%d %H:%M:%S") if target.tzinfo else target.strftime("%Y-%m-%d %H:%M:%S")
+        self._log(task_id, "info", f"等待目标时间 {display_target}")
+        await self._emit_progress(task_id)
+        while True:
+            now = datetime.now(target.tzinfo) if target.tzinfo else datetime.now()
+            seconds = (target - now).total_seconds()
+            if seconds <= 0:
+                task["countdownSeconds"] = 0
+                self._log(task_id, "warning", "到达目标时间，开始执行")
+                await self._emit_progress(task_id)
+                return
+            task["countdownSeconds"] = int(seconds)
+            await self._emit_progress(task_id)
+            await asyncio.sleep(min(seconds, 1))
+
+    @staticmethod
+    def _parse_target_time(target_time: Any) -> datetime:
+        return datetime.fromisoformat(str(target_time).replace("Z", "+00:00"))
+
+    @classmethod
+    def _seconds_until(cls, target_time: Any) -> int:
+        if not target_time:
+            return 0
+        try:
+            target = cls._parse_target_time(target_time)
+            now = datetime.now(target.tzinfo) if target.tzinfo else datetime.now()
+            return max(0, int((target - now).total_seconds()))
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _to_float(value: Any, fallback: float) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return fallback
+
+    @classmethod
+    def _is_future_target(cls, target_time: Any) -> bool:
+        return cls._seconds_until(target_time) > 0
+
+    async def _receive(self, config: dict[str, Any], item: dict[str, Any]) -> dict[str, Any]:
+        item = await self._enrich_task_item(item, config)
+        cookie = bilibili_service.cookie_string
+        csrf = bilibili_service.csrf_token
+        name = item.get("name") or item.get("taskName") or item.get("id")
+        activity_id = item.get("activityId") or item.get("activity_id")
+        if not activity_id:
+            reason = item.get("queryError") or item.get("queryMessage") or "mission/info 未返回 activity_id，已跳过领取"
+            return {
+                "taskId": item.get("id"),
+                "name": name,
+                "code": item.get("queryCode"),
+                "message": reason,
+                "done": False,
+                "level": "error",
+                "activityId": None,
+                "awardName": item.get("awardName") or item.get("award_name"),
+            }
+        wts, w_rid = self._generate_wbi_signature()
+        payload = {
+            "csrf": csrf,
+            "task_id": item.get("id"),
+            "activity_id": activity_id,
+            "activity_name": item.get("activityName") or item.get("activity_name") or "",
+            "task_name": item.get("taskName") or item.get("name", ""),
+            "reward_name": item.get("awardName") or item.get("award_name") or item.get("name", ""),
+            "gaia_vtoken": "",
+            "receive_from": "missionPage",
+        }
+        headers = {
+            "Cookie": cookie,
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": bilibili_service.user_agent,
+            "Referer": f"https://www.bilibili.com/blackboard/new-award-exchange.html?task_id={item.get('id')}",
+            "Origin": "https://www.bilibili.com",
+        }
+        async with create_client(timeout=10.0) as client:
+            response = await client.post(
+                "https://api.bilibili.com/x/activity_components/mission/receive",
+                params={"w_rid": w_rid, "wts": wts},
+                data=payload,
+                headers=headers,
+            )
+        data = response.json()
+        code = data.get("code")
+        message = data.get("message") or data.get("msg") or str(data)
+        done = code in (0, 202031)
+        level = "success" if done else ("warning" if code in (202120, 75255) else "error")
+        cdkey = None
+        if done and (item.get("awardName") or item.get("award_name")) and (item.get("activityId") or item.get("activity_id")):
+            cdkey = await self._query_cdkey(item, config)
+            if cdkey:
+                message = f"{message}，兑换码: {cdkey}"
+        return {
+            "taskId": item.get("id"),
+            "name": name,
+            "code": code,
+            "message": message,
+            "done": done,
+            "level": level,
+            "cdkey": cdkey,
+            "activityId": item.get("activityId") or item.get("activity_id"),
+            "awardName": item.get("awardName") or item.get("award_name"),
+        }
+
+    async def _enrich_task_item(self, item: dict[str, Any], config: dict[str, Any], force: bool = False) -> dict[str, Any]:
+        """Query mission/info to fill activity_id, activity_name, award_name and stock."""
+        if not force and item.get("activityId") and item.get("awardName"):
+            return item
+        task_id = item.get("id")
+        if not task_id:
+            return item
+        web_location = config.get("webLocation") or 888.81821
+        wts, w_rid = self._generate_wbi_signature(task_id=task_id, web_location=web_location)
+        params = {"task_id": task_id, "web_location": web_location, "w_rid": w_rid, "wts": str(wts)}
+        headers = {
+            "Cookie": bilibili_service.cookie_string,
+            "User-Agent": bilibili_service.user_agent,
+            "Referer": f"https://www.bilibili.com/blackboard/new-award-exchange.html?task_id={task_id}",
+        }
+        try:
+            async with create_client(timeout=10.0) as client:
+                data = (await client.get(
+                    "https://api.bilibili.com/x/activity_components/mission/info",
+                    params=params,
+                    headers=headers,
+                )).json()
+            if data.get("code") != 0:
+                return {**item, "queryCode": data.get("code"), "queryMessage": data.get("message") or data.get("msg"), "rawResponse": data}
+            task_data = data.get("data", {})
+            reward_info = task_data.get("reward_info", {}) or {}
+            stock_info = task_data.get("stock_info", {}) or {}
+            task_status = task_data.get("status") if task_data.get("status") is not None else task_data.get("task_status")
+            return {
+                **item,
+                "activityId": task_data.get("act_id"),
+                "activityName": task_data.get("act_name"),
+                "taskName": task_data.get("task_name"),
+                "awardName": reward_info.get("award_name") or item.get("awardName"),
+                "dayStock": stock_info.get("day_stock"),
+                "totalStock": stock_info.get("total_stock"),
+                "dayRemainNum": stock_info.get("day_remain_num"),
+                "totalRemainNum": stock_info.get("total_remain_num"),
+                "dayStockLimit": stock_info.get("day_stock_limit"),
+                "totalStockLimit": stock_info.get("total_stock_limit"),
+                "taskStatus": task_status,
+                "taskStatusLabel": self._task_status_label(task_status),
+                "stockSummary": f"每日库存: {stock_info.get('day_stock', 'N/A')}% | 总库存: {stock_info.get('total_stock', 'N/A')}%",
+                "wts": wts,
+                "wRid": w_rid,
+                "rawResponse": data,
+            }
+        except Exception as exc:
+            return {**item, "queryError": str(exc)}
+
+    async def _query_cdkey(self, item: dict[str, Any], config: dict[str, Any]) -> str | None:
+        activity_id = item.get("activityId") or item.get("activity_id")
+        award_name = item.get("awardName") or item.get("award_name")
+        if not activity_id or not award_name:
+            return None
+        web_location = config.get("webLocation") or 888.81821
+        wts, w_rid = self._generate_wbi_signature(activity_id=activity_id, web_location=web_location)
+        params = {"activity_id": activity_id, "web_location": web_location, "w_rid": w_rid, "wts": wts}
+        headers = {
+            "Cookie": bilibili_service.cookie_string,
+            "User-Agent": bilibili_service.user_agent,
+            "Referer": "https://www.bilibili.com/blackboard/era/award-exchange.html",
+        }
+        try:
+            async with create_client(timeout=10.0) as client:
+                data = (await client.get(
+                    "https://api.bilibili.com/x/activity_components/mission/mylist",
+                    params=params,
+                    headers=headers,
+                )).json()
+            if data.get("code") != 0:
+                return None
+            for record in data.get("data", {}).get("list", []) or []:
+                if record.get("award_name") == award_name:
+                    return (record.get("extra_info") or {}).get("cdkey_content")
+        except Exception:
+            return None
+        return None
+
+    @staticmethod
+    def _generate_wbi_signature(**kwargs: Any) -> tuple[int, str]:
+        wts = int(time.time())
+        params = {**kwargs, "wts": wts}
+        query_string = "&".join(f"{key}={params[key]}" for key in sorted(params.keys()))
+        salt = "ea1db124af3c7062474693fa704f4ff8"
+        return wts, hashlib.md5((query_string + salt).encode("utf-8")).hexdigest()
+
+
+task_engine = TaskEngine()

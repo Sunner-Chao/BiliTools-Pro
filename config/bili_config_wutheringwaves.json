@@ -1,0 +1,134 @@
+{
+    "TASKS": [
+        {    
+            "新人直播累计1天奖励(50星声)": {
+                "id": "18ERA1wloghvpv100",
+                "description": "限定50星声"
+            },
+            "新人直播累计2天奖励(80星声)": {
+                "id": "18ERA1wloghvpcv00",
+                "description": "限定80星声"
+            },
+            "新人直播累计3天奖励(120星声)": {
+                "id": "18ERA1wloghvpva00",
+                "description": "限定120星声"
+            },
+            "新人直播累计7天奖励(180星声)": {
+                "id": "18ERA1wloghvp8v00",
+                "description": "限180星声"
+            },
+            "新人直播累计14天奖励(唤声涡纹*2)": {
+                "id": "18ERA1wloghvp9a00",
+                "description": "唤声涡纹*2"
+            },
+
+
+            "第一期-累计完成每日直播3天(180星声)": {
+                "id": "18ERA1wloghvp8u00",
+                "description": "累计完成每日直播3天"
+            },
+            "第一期-累计完成每日直播5天(300星声)": {
+                "id": "18ERA1wloghvp5a00",
+                "description": "累计完成每日直播5天"
+            },
+            "第一期-累计完成每日直播10天(唤声涡纹*3)": {
+                "id": "18ERA1wloghvp5900",
+                "description": "累计完成每日直播10天"
+            },
+           
+            "第一期-累计投稿1天-播放量大于100(星声*60)": {
+                "id": "6ERA4wloghvzub00",
+                "description": "星声*60"
+            },
+            "第一期-累计投稿2天-播放量大于300(星声*120)": {
+                "id": "6ERA4wloghvlzj00",
+                "description": "星声*120"
+            },
+            "第一期-累计投稿3天-播放量大于1000(星声*180)": {
+                "id": "6ERA4wloghvzu100",
+                "description": "星声*180"
+            },
+            "第一期-累计投稿7天-播放量大于2000(星声*300)": {
+                "id": "6ERA4wloghvlt500",
+                "description": "星声*300"
+            },
+            "第一期-累计投稿14天-播放量大于3000(星声*500)": {
+                "id": "6ERA4wloghvlx500",
+                "description": "星声*500"
+            },
+            "第一期-每日奖励-开播满60分钟(中级共鸣促剂*2)": {
+                "id": "6ERA4wloghvzha00",
+                "description": "中级共鸣促剂*2"
+            },
+            "第一期-每日奖励-直播间弹幕满20条(贝币*10000)": {
+                "id": "6ERA4wloghvlk300",
+                "description": "贝币*10000"
+            },
+            "第一期-每日奖励-开播满120分钟(中级能源核心*2)": {
+                "id": "6ERA4wloghvzr700",
+                "description": "中级能源核心*2"
+            },
+            "第一期-每日奖励-观看人数大于等于5人(中级复苏吸雾*2)": {
+                "id": "6ERA4wloghvzlh00",
+                "description": "中级复苏吸雾*2"
+            },
+            "第二期-累计完成每日直播任务3天(180星声)": {
+                "id": "18ERA1wloghvp3e00",
+                "description": "累计完成每日直播任务3天"
+            },
+            "第二期-累计完成每日直播5天(300星声)": {
+                "id": "18ERA1wloghvoxa00",
+                "description": "累计完成每日直播5天"
+            },
+            "第二期-累计完成每日直播10天(唤声涡纹*3)": {
+                "id": "18ERA1wloghvox900",
+                "description": "累计完成每日直播10天"
+            },
+
+            "第二期-累计投稿1天-播放量大于100(星声*60)": {
+                "id": "6ERA4wloghvlx400",
+                "description": "星声*60"
+            },
+            "第二期-累计投稿2天-播放量大于300(星声*120)": {
+                "id": "6ERA4wloghvzum00",
+                "description": "星声*120"
+            },
+            "第二期-累计投稿3天-播放量大于1000(星声*180)": {
+                "id": "6ERA4wloghvzjj00",
+                "description": "星声*180"
+            },
+            "第二期-累计投稿7天-播放量大于2000(星声*300)": {
+                "id": "6ERA4wloghvzun00",
+                "description": "星声*300"
+            },
+            "第二期-累计投稿14天-播放量大于3000(星声*500)": {
+                "id": "6ERA4wloghvzu600",
+                "description": "星声*500"
+            },
+        
+
+            "第二期-每日奖励-开播满60分钟(中级共鸣促剂*2)": {
+                "id": "6ERA4wloghvlaf00",
+                "description": "中级共鸣促剂*2"
+            },
+            "第二期-每日奖励-直播间弹幕满20条(贝币*10000)": {
+                "id": "6ERA4wloghvzhp00",
+                "description": "贝币*10000"
+            },
+            "第二期-每日奖励-开播满120分钟(中级能源核心*2)": {
+                "id": "6ERA4wloghvzfv00",
+                "description": "中级能源核心*2"
+            },
+            "第二期-每日奖励-观看人数大于等于5人(中级复苏吸雾*2)": {
+                "id": "6ERA4wloghvzic00",
+                "description": "中级复苏吸雾*2"
+            }
+        }
+    ],
+    "area_name":"鸣潮",
+    "live_task_ids":"6ERA4wloghvzvx00",
+    "live2_task_ids":"6ERA4wloghvzuc00",
+    "watch_task_ids":"",
+    "submit_task_ids":"",
+    "area_v2":874
+}

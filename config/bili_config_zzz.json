@@ -1,0 +1,99 @@
+{
+    "TASKS": [
+        {    
+            "累计3天开播及互动(360菲林)": {
+                "id": "18ERA1wloghvpj900",
+                "description": "累计3天开播及互动"
+            },
+            "累计5天开播及互动(660菲林)": {
+                "id": "18ERA1wloghvpge00",
+                "description": "累计5天开播及互动"
+            },
+            "累计10天开播及互动(1000菲林)": {
+                "id": "18ERA1wloghvpg100",
+                "description": "累计10天开播及互动"
+            },
+            "累计20天开播及互动(1000菲林)": {
+                "id": "18ERA1wloghvp2500",
+                "description": "累计20天开播及互动"
+            },
+            "累计30天开播及互动(1000菲林)": {
+                "id": "18ERA1wloghvpn900",
+                "description": "累计30天开播及互动"
+            },
+            "累计40天开播及互动(1000菲林)": {
+                "id": "18ERA1wloghvpmv00",
+                "description": "累计40天开播及互动"
+            },
+            "直播收获1名舰长(480菲林)": {
+                "id": "6ERA3wloghv78d00",
+                "description": "直播收获1名舰长"
+            },
+            "投稿量大于4-播放量大于400(菲林*80)": {
+                "id": "6ERA5wloghvq7o00",
+                "description": "菲林*80"
+            },
+            "投稿量大于5-播放量大于500(母带*1)": {
+                "id": "6ERA4wloghvjcd00",
+                "description": "原装母带*1"
+            },
+            "投稿播放量大于15万(菲林*1000)": {
+                "id": "6ERA4wloghvj9700",
+                "description": "菲林*1000"
+            },
+            "投稿播放量大于70万(菲林*1600)": {
+                "id": "6ERA4wloghvkic00",
+                "description": "菲林*1600"
+            },
+            "投稿播放量大于100(菲林*30)": {
+                "id": "6ERA4wloghvj2i00",
+                "description": "菲林*30"
+            },
+            "累计投稿3天-播放量大于500(菲林*150)": {
+                "id": "6ERA4wloghvkuh00",
+                "description": "菲林*150"
+            },
+            "累计投稿7天-播放量大于1000(菲林*300)": {
+                "id": "6ERA4wloghvj1t00",
+                "description": "菲林*300"
+            },
+            "累计投稿14天-播放量大于3000(菲林*500)": {
+                "id": "6ERA4wloghvjxu00",
+                "description": "菲林*500"
+            },
+            "累计投稿21天-播放量大于4000(菲林*800)": {
+                "id": "6ERA4wloghvkwk00",
+                "description": "菲林*800"
+            },
+            "累计投稿35天-播放量大于6000(菲林*1000)": {
+                "id": "6ERA4wloghvh7c00",
+                "description": "菲林*1000"
+            },
+            "累计投稿35天-播放量大于5万(菲林*1000)": {
+                "id": "6ERA4wloghvjnk00",
+                "description": "菲林*1000"
+            },
+            "每日奖励-开播满60分钟(丁尼*1000)": {
+                "id": "6ERA4wloghvhg800",
+                "description": "丁尼*1000"
+            },
+            "每日奖励-送'牛蛙'大于2只(音擎能源模块*2)": {
+                "id": "6ERA4wloghvgmr00",
+                "description": "音擎能源模块*2"
+            },
+            "每日奖励-弹幕大于10条(资深调查员记录*2)": {
+                "id": "6ERA4wloghvz9s00",
+                "description": "资深调查员记录*2"
+            },
+            "每日奖励-有1人看满10分钟(丁尼*5000)": {
+                "id": "6ERA4wloghvgi200",
+                "description": "丁尼*5000"
+            }
+        }
+    ],
+    "area_name":"绝区零",
+    "live_task_ids":"6ERA4wloghvh1500",
+    "watch_task_ids":"",
+    "submit_task_ids":"6ERA4wloghvtv000",
+    "area_v2":662
+}

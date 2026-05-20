@@ -1,0 +1,12 @@
+/* ═══════════════════════════════════════════════════════════════════
+   BiliTools Pro — Design System Entry Point
+
+   Modular architecture: tokens → animations → a11y → components → layout → antd
+   ═══════════════════════════════════════════════════════════════════ */
+
+@import './styles/tokens.css';
+@import './styles/animations.css';
+@import './styles/a11y.css';
+@import './styles/components.css';
+@import './styles/layout.css';
+@import './styles/antd-overrides.css';

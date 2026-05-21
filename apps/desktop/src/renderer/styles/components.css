@@ -665,6 +665,9 @@
 .bt-resource-list {
   max-height: 240px;
   overflow: auto;
+  overscroll-behavior: contain;
+  overflow-anchor: none;
+  scrollbar-gutter: stable;
   border: 1px solid var(--bt-glass-border);
   border-radius: var(--bt-radius-lg);
   padding: var(--bt-space-3);
@@ -675,17 +678,10 @@
   flex: 1;
   min-height: 0;
   max-height: none;
+  height: 100%;
 }
 .bt-resource-item {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 48px;
   padding: 4px 0;
-}
-/* Fallback for browsers that don't support content-visibility */
-@supports not (content-visibility: auto) {
-  .bt-resource-item {
-    contain: layout style;
-  }
 }
 
 /* ── Equal-height workbench layouts ── */
